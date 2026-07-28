@@ -1,0 +1,54 @@
+{
+    "version": 6,
+
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 24,
+        "patch": 0
+    },
+
+    "configurePresets": [
+        {
+            "name": "Debug-Native",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/Debug-Native",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "Release-Native",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/Release-Native",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "Release-wasm",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/Release-wasm",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "/usr/lib/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+                "CMAKE_C_COMPILER": "emcc",
+                "CMAKE_CXX_COMPILER": "em++"
+            }
+        }
+    ],
+
+    "buildPresets": [
+        {
+            "name": "Debug",
+            "configurePreset": "Debug-Native"
+        },
+        {
+            "name": "Release",
+            "configurePreset": "Release-Native"
+        },
+        {
+            "name": "HTML",
+            "configurePreset": "Release-wasm"
+        }
+    ]
+}
