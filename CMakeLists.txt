@@ -16,11 +16,6 @@ include(FetchContent)
 set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/lib")
 
 FetchContent_Declare(
-    SDL3
-    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG main
-)
-FetchContent_Declare(
     cmrc
     GIT_REPOSITORY https://github.com/vector-of-bool/cmrc.git
     GIT_TAG master
@@ -30,12 +25,82 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/Madour/LDtkLoader.git
     GIT_TAG master
 )
-FetchContent_MakeAvailable(
-    SDL3
-    cmrc
-    LDtkLoader
+FetchContent_Declare(
+    sdl3webgpu
+    GIT_REPOSITORY https://github.com/eliemichel/sdl3webgpu.git
+    GIT_TAG main
+)
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG master
 )
 
+if(EMSCRIPTEN)
+    set_target_properties(${PROJECT_NAME_VAR}
+        PROPERTIES
+        SUFFIX ".html"
+    )
+
+    target_link_options(${PROJECT_NAME_VAR}
+        PRIVATE
+            "-sUSE_SDL=3"
+            "-sUSE_WEBGPU=1"
+            "-sASSERTIONS=1"
+            "-sALLOW_MEMORY_GROWTH"
+            "-sEXIT_RUNTIME=0"
+    )
+
+    target_link_options(${PROJECT_NAME_VAR}
+        PRIVATE
+            --shell-file
+            ${CMAKE_SOURCE_DIR}/web/shell.html
+    )
+else()
+    set(CMAKE_REQUIRED_DEFINITIONS "-D_DEFAULT_SOURCE" CACHE STRING "" FORCE)
+    FetchContent_Declare(
+        SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG release-3.4.8
+        CMAKE_ARGS
+            -DHAVE_GETRESUID=1
+            -DHAVE_GETRESGID=1
+    )
+
+    FetchContent_Declare(
+        webgpu
+        GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution
+        GIT_TAG        v0.3.0-gamma
+    )
+    set(WEBGPU_BACKEND "WGPU" CACHE STRING "" FORCE)
+    set(WEBGPU_BUILD_FROM_SOURCE OFF CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(webgpu)
+endif()
+
+# gcem has to be manually imported because it is a special little snowflake
+FetchContent_Declare(
+    gcem
+    GIT_REPOSITORY https://github.com/kthohr/gcem.git
+    GIT_TAG master # or replace with a specific release tag/commit
+)
+FetchContent_GetProperties(gcem)
+if(NOT gcem_POPULATED)
+    FetchContent_Populate(gcem)
+endif()
+
+if(NOT EMSCRIPTEN)
+    set(HAVE_GETRESUID 1 CACHE INTERNAL "")
+    set(HAVE_GETRESGID 1 CACHE INTERNAL "")
+    FetchContent_MakeAvailable(SDL3)
+endif()
+
+FetchContent_MakeAvailable(
+    cmrc
+    LDtkLoader
+    sdl3webgpu
+    stb
+)
 file(GLOB_RECURSE PROJECT_SOURCES
     CONFIGURE_DEPENDS
     src/*.cpp
@@ -88,10 +153,20 @@ target_link_libraries(${PROJECT_NAME_VAR}
         SDL3::SDL3
         game_assets
         LDtkLoader
+        webgpu
+        sdl3webgpu
 )
+
+if(NOT EMSCRIPTEN)
+    target_copy_webgpu_binaries(${PROJECT_NAME_VAR})
+endif()
+
+
 target_include_directories(${PROJECT_NAME_VAR}
     PRIVATE
-        src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/
+        ${gcem_SOURCE_DIR}/include/
+        ${stb_SOURCE_DIR}/
 )
 
 target_compile_definitions(${PROJECT_NAME_VAR}
@@ -101,25 +176,4 @@ target_compile_definitions(${PROJECT_NAME_VAR}
         PROJECT_NAME="${PROJECT_NAME_VAR}"
         PROJECT_VERSION="${PROJECT_VERSION}"
 )
-
-if(EMSCRIPTEN)
-    set_target_properties(${PROJECT_NAME_VAR}
-        PROPERTIES
-        SUFFIX ".html"
-    )
-
-    target_link_options(${PROJECT_NAME_VAR}
-        PRIVATE
-            "-sUSE_SDL=3"
-            "-sASSERTIONS=1"
-            "-sALLOW_MEMORY_GROWTH"
-            "-sEXIT_RUNTIME=0"
-    )
-
-    target_link_options(${PROJECT_NAME_VAR}
-        PRIVATE
-            --shell-file
-            ${CMAKE_SOURCE_DIR}/web/shell.html
-    )
-endif()
 

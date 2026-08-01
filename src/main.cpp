@@ -1,42 +1,45 @@
-#include <SDL3/SDL.h>
-#include <cmrc/cmrc.hpp>
-#include <LDtkLoader/Project.hpp>
-#include <app.hpp>
-#include <print>
+#include <base/base.hpp>
 
+#include <cmrc/cmrc.hpp>
 CMRC_DECLARE(game_assets);
 cmrc::embedded_filesystem fs = cmrc::game_assets::get_filesystem();
 
-#include <emscripten_wrapper.hpp>
+#include <print>
+#include <functional>
+
+#ifdef __EMSCRIPTEN__
+#    include <emscripten.h>
+void handle_loop(std::function<bool()> loop) {
+    static std::function<bool()> _loop = [] { return false; };
+    _loop = loop;
+    emscripten_set_main_loop(
+        [] {
+            if (!_loop()) emscripten_cancel_main_loop();
+        },
+        0, true);
+}
+#else
+void handle_loop(std::function<bool()> loop) {
+    while (loop());
+}
+#endif
+
+extern "C" Base::BaseClass* GetApplication();
 
 int main() {
-    Application* app = Application::get();
-    app->init();
-
     std::print("{} v{}\n- {} commit# {}", PROJECT_NAME, PROJECT_VERSION, PROJECT_GIT_URL, PROJECT_GIT_COMMIT_HASH);
 
-    emswrapper_loop([&app]() {
-        bool doexit = false;
-        try {
-            app->loop();
-            doexit = !app->running;
-        } catch (Application::ErrorExit) {
-            std::print("Error exit!");
-            doexit = true;
-        } catch (Application::Exit) {
-            std::print("Exit thrown!");
-            doexit = true;
-        }
-        if (doexit) {
-            app->running = false;
-        }
+    std::print("Initializing...\n");
+    Base::BaseClass* app = GetApplication();
+    app->init();
+
+    handle_loop([&app]() {
+        app->loop();
         return app->running;
     });
 
     std::print("Quitting...\n");
-
     app->quit();
-    delete app;
 
     return 0;
 }
