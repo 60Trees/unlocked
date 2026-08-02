@@ -1,15 +1,26 @@
 cmake_minimum_required(VERSION 3.24)
 
 set(PROJECT_NAME_VAR "Run")
+message("Configuring ${PROJECT_NAME_VAR}...")
 
 project(${PROJECT_NAME_VAR}
     VERSION 1.0.0
     LANGUAGES C CXX
 )
 
+file(GLOB_RECURSE PROJECT_SOURCES
+    CONFIGURE_DEPENDS
+    src/*.cpp
+    src/*.c
+)
+
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_executable(${PROJECT_NAME_VAR}
+    ${PROJECT_SOURCES}
+)
 
 include(FetchContent)
 
@@ -36,47 +47,42 @@ FetchContent_Declare(
     GIT_TAG master
 )
 
+FetchContent_Declare(
+    webgpu
+    GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution
+    GIT_TAG        v0.3.0-gamma
+)
+
 if(EMSCRIPTEN)
-    set_target_properties(${PROJECT_NAME_VAR}
-        PROPERTIES
-        SUFFIX ".html"
-    )
+    set_target_properties(${PROJECT_NAME_VAR} PROPERTIES SUFFIX ".html")
 
     target_link_options(${PROJECT_NAME_VAR}
         PRIVATE
             "-sUSE_SDL=3"
-            "-sUSE_WEBGPU=1"
             "-sASSERTIONS=1"
             "-sALLOW_MEMORY_GROWTH"
             "-sEXIT_RUNTIME=0"
+            --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
     )
 
-    target_link_options(${PROJECT_NAME_VAR}
-        PRIVATE
-            --shell-file
-            ${CMAKE_SOURCE_DIR}/web/shell.html
-    )
+    set(WEBGPU_BACKEND "EMDAWNWEBGPU" CACHE STRING "" FORCE)
+    FetchContent_MakeAvailable(webgpu)
 else()
-    set(CMAKE_REQUIRED_DEFINITIONS "-D_DEFAULT_SOURCE" CACHE STRING "" FORCE)
-    FetchContent_Declare(
-        SDL3
-        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG release-3.4.8
-        CMAKE_ARGS
-            -DHAVE_GETRESUID=1
-            -DHAVE_GETRESGID=1
-    )
-
-    FetchContent_Declare(
-        webgpu
-        GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution
-        GIT_TAG        v0.3.0-gamma
-    )
     set(WEBGPU_BACKEND "WGPU" CACHE STRING "" FORCE)
     set(WEBGPU_BUILD_FROM_SOURCE OFF CACHE BOOL "" FORCE)
 
     FetchContent_MakeAvailable(webgpu)
 endif()
+
+set(CMAKE_REQUIRED_DEFINITIONS "-D_DEFAULT_SOURCE" CACHE STRING "" FORCE)
+FetchContent_Declare(
+    SDL3
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG release-3.4.8
+    CMAKE_ARGS
+        -DHAVE_GETRESUID=1
+        -DHAVE_GETRESGID=1
+)
 
 # gcem has to be manually imported because it is a special little snowflake
 FetchContent_Declare(
@@ -89,11 +95,11 @@ if(NOT gcem_POPULATED)
     FetchContent_Populate(gcem)
 endif()
 
-if(NOT EMSCRIPTEN)
-    set(HAVE_GETRESUID 1 CACHE INTERNAL "")
-    set(HAVE_GETRESGID 1 CACHE INTERNAL "")
-    FetchContent_MakeAvailable(SDL3)
-endif()
+#if(NOT EMSCRIPTEN)
+set(HAVE_GETRESUID 1 CACHE INTERNAL "")
+set(HAVE_GETRESGID 1 CACHE INTERNAL "")
+FetchContent_MakeAvailable(SDL3)
+#endif()
 
 FetchContent_MakeAvailable(
     cmrc
@@ -101,11 +107,26 @@ FetchContent_MakeAvailable(
     sdl3webgpu
     stb
 )
-file(GLOB_RECURSE PROJECT_SOURCES
-    CONFIGURE_DEPENDS
-    src/*.cpp
-    src/*.c
-)
+
+if(EMSCRIPTEN)
+    target_compile_definitions(sdl3webgpu PRIVATE WEBGPU_BACKEND_EMDAWNWEBGPU)
+    target_compile_options(sdl3webgpu PRIVATE "--use-port=emdawnwebgpu")
+
+    # Upstream sdl3webgpu.c still assigns raw char* to WGPUStringView fields,
+    # which doesn't compile against the emdawnwebgpu port's webgpu.h.
+    # Patch it in place after fetch (idempotent — no-ops on repeat configures).
+    set(SDL3WEBGPU_C "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c")
+    file(READ "${SDL3WEBGPU_C}" SDL3WEBGPU_C_CONTENT)
+    string(REPLACE
+        "fromCanvasHTMLSelector.selector = \"canvas\";"
+        "fromCanvasHTMLSelector.selector = (WGPUStringView){ \"canvas\", WGPU_STRLEN };"
+        SDL3WEBGPU_C_CONTENT "${SDL3WEBGPU_C_CONTENT}")
+    string(REPLACE
+        "surfaceDescriptor.label = NULL;"
+        "surfaceDescriptor.label = (WGPUStringView){ NULL, 0 };"
+        SDL3WEBGPU_C_CONTENT "${SDL3WEBGPU_C_CONTENT}")
+    file(WRITE "${SDL3WEBGPU_C}" "${SDL3WEBGPU_C_CONTENT}")
+endif()
 
 # <AI>
 # Get Git remote URL
@@ -134,10 +155,6 @@ if(NOT GIT_COMMIT_HASH)
 endif()
 # </AI>
 
-add_executable(${PROJECT_NAME_VAR}
-    ${PROJECT_SOURCES}
-)
-
 file(GLOB_RECURSE ASSET_FILES
     CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_SOURCE_DIR}"
@@ -148,6 +165,7 @@ cmrc_add_resource_library(game_assets
     ALIAS assets
     ${ASSET_FILES}
 )
+
 target_link_libraries(${PROJECT_NAME_VAR}
     PRIVATE
         SDL3::SDL3
@@ -176,4 +194,3 @@ target_compile_definitions(${PROJECT_NAME_VAR}
         PROJECT_NAME="${PROJECT_NAME_VAR}"
         PROJECT_VERSION="${PROJECT_VERSION}"
 )
-

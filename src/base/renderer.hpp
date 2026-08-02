@@ -52,12 +52,24 @@ namespace Base {
         virtual uint8_t getAtlasId(std::string_view atlas_name) = 0;
         struct Camera {
             float x = 0, y = 0;
-            // zoom is how many units can fit into (min(screen width, screen height))
+            // zoom is how many tiles can fit into the screen width/height
+            // i.e zoom=1 means that a square one unit big fits the whole screen,
+            // while zoom=10 means that it a square 10 units big fits the whole screen
             // so that it's consistent for window size.
-            double zoom = 1;
+            double zoom = 10;
+            double _real_zoom = 0;
+
+            double zoom_speed = 15;
+            double zoom_snap_distance = 0.01;
+
             // uizoom is how many ui pixels can fit into (min(screen width, screen height))
             // so that it's also consistent for window size
             double uizoom = 1;
+            inline void update_zoom(double dt) {
+                //_real_zoom = zoom;
+                _real_zoom += (zoom - _real_zoom) / 2 * dt * zoom_speed;
+                if (mth::abs(zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = zoom;
+            }
         } camera;
 
         protected:

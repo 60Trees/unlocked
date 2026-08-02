@@ -4,7 +4,6 @@
 #include <cstring>
 #include <cstddef>
 #include <cstdint>
-#include <array>
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
@@ -19,7 +18,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-// <AI> (manually tweaked a bit)
+// <AI> (manually tweaked some)
 namespace wgpu_util {
     constexpr WGPUStringView toStringView(std::string_view sv) noexcept { return WGPUStringView{sv.data(), sv.size()}; }
     constexpr WGPUStringView toStringView(const char* cstr) noexcept { return WGPUStringView{cstr, WGPU_STRLEN}; }
@@ -114,9 +113,8 @@ class GameRenderer : public Base::Renderer {
     void createSampler();
     void updateTransform(SpaceGPU& space, float offsetX, float offsetY, double zoomUnits);
     void ensureVertexBufferCapacity(WGPUBuffer& buffer, size_t& capacityVerts, size_t neededVerts, size_t vertexStride, const char* label);
-    std::vector<DrawRun> buildAndUploadDraws(SpaceGPU& space,
-                                              const std::vector<Base::Renderer::ColouredVertex>& coloured,
-                                              const std::vector<Base::Renderer::TexturedVertex>& textured);
+    std::vector<DrawRun> buildAndUploadDraws(SpaceGPU& space, const std::vector<Base::Renderer::ColouredVertex>& coloured,
+        const std::vector<Base::Renderer::TexturedVertex>& textured);
     void drawSpace(WGPURenderPassEncoder pass, const SpaceGPU& space, const std::vector<DrawRun>& runs);
 };
 
@@ -439,7 +437,7 @@ void GameRenderer::createTransformResources() {
 }
 
 void GameRenderer::updateTransform(SpaceGPU& space, float offsetX, float offsetY, double zoomUnits) {
-    float minDim = (float)std::min(surfaceWidth, surfaceHeight);
+    float minDim = (float)mth::min(surfaceWidth, surfaceHeight);
     float pixelsPerUnit = zoomUnits > 0.0 ? minDim / (float)zoomUnits : 0.0f;
 
     TransformUBO ubo{};
@@ -468,8 +466,8 @@ void GameRenderer::createSampler() {
     if (!atlasSampler) throw _err(("Failed to create atlas sampler"));
 }
 
-void GameRenderer::ensureVertexBufferCapacity(WGPUBuffer& buffer, size_t& capacityVerts, size_t neededVerts,
-                                               size_t vertexStride, const char* label) {
+void GameRenderer::ensureVertexBufferCapacity(
+    WGPUBuffer& buffer, size_t& capacityVerts, size_t neededVerts, size_t vertexStride, const char* label) {
     if (buffer && neededVerts <= capacityVerts) return;
 
     if (buffer) wgpuBufferRelease(buffer);
@@ -483,10 +481,8 @@ void GameRenderer::ensureVertexBufferCapacity(WGPUBuffer& buffer, size_t& capaci
     if (!buffer) throw _err(("Failed to (re)create vertex buffer '{}'", label));
 }
 
-std::vector<GameRenderer::DrawRun> GameRenderer::buildAndUploadDraws(
-    SpaceGPU& space,
-    const std::vector<Base::Renderer::ColouredVertex>& coloured,
-    const std::vector<Base::Renderer::TexturedVertex>& textured) {
+std::vector<GameRenderer::DrawRun> GameRenderer::buildAndUploadDraws(SpaceGPU& space,
+    const std::vector<Base::Renderer::ColouredVertex>& coloured, const std::vector<Base::Renderer::TexturedVertex>& textured) {
     struct TriRef {
         bool textured;
         size_t triIndex;
@@ -497,10 +493,8 @@ std::vector<GameRenderer::DrawRun> GameRenderer::buildAndUploadDraws(
     std::vector<TriRef> refs;
     refs.reserve(coloured.size() / 3 + textured.size() / 3);
 
-    for (size_t t = 0; t + 3 <= coloured.size(); t += 3)
-        refs.push_back({false, t / 3, coloured[t].get_z_index(), 0});
-    for (size_t t = 0; t + 3 <= textured.size(); t += 3)
-        refs.push_back({true, t / 3, textured[t].get_z_index(), textured[t].textureid});
+    for (size_t t = 0; t + 3 <= coloured.size(); t += 3) refs.push_back({false, t / 3, coloured[t].get_z_index(), 0});
+    for (size_t t = 0; t + 3 <= textured.size(); t += 3) refs.push_back({true, t / 3, textured[t].get_z_index(), textured[t].textureid});
 
     // Back-to-front: lower z-index drawn first (further back).
     std::stable_sort(refs.begin(), refs.end(), [](const TriRef& a, const TriRef& b) { return a.z < b.z; });
@@ -528,8 +522,7 @@ std::vector<GameRenderer::DrawRun> GameRenderer::buildAndUploadDraws(
                 gv.colour[3] = (v.rgba & 0xFF) / 255.0f;
                 gpuColoured.push_back(gv);
             }
-            if (!runs.empty() && !runs.back().textured &&
-                runs.back().firstVertex + runs.back().vertexCount == startVertex) {
+            if (!runs.empty() && !runs.back().textured && runs.back().firstVertex + runs.back().vertexCount == startVertex) {
                 runs.back().vertexCount += 3;
             } else {
                 runs.push_back({false, 0, startVertex, 3});
@@ -561,16 +554,12 @@ std::vector<GameRenderer::DrawRun> GameRenderer::buildAndUploadDraws(
     }
 
     if (!gpuColoured.empty()) {
-        ensureVertexBufferCapacity(space.colouredVB, space.colouredCapacity, gpuColoured.size(),
-                                    sizeof(GPUColouredVertex), "Coloured VB");
-        wgpuQueueWriteBuffer(queue, space.colouredVB, 0, gpuColoured.data(),
-                              gpuColoured.size() * sizeof(GPUColouredVertex));
+        ensureVertexBufferCapacity(space.colouredVB, space.colouredCapacity, gpuColoured.size(), sizeof(GPUColouredVertex), "Coloured VB");
+        wgpuQueueWriteBuffer(queue, space.colouredVB, 0, gpuColoured.data(), gpuColoured.size() * sizeof(GPUColouredVertex));
     }
     if (!gpuTextured.empty()) {
-        ensureVertexBufferCapacity(space.texturedVB, space.texturedCapacity, gpuTextured.size(),
-                                    sizeof(GPUTexturedVertex), "Textured VB");
-        wgpuQueueWriteBuffer(queue, space.texturedVB, 0, gpuTextured.data(),
-                              gpuTextured.size() * sizeof(GPUTexturedVertex));
+        ensureVertexBufferCapacity(space.texturedVB, space.texturedCapacity, gpuTextured.size(), sizeof(GPUTexturedVertex), "Textured VB");
+        wgpuQueueWriteBuffer(queue, space.texturedVB, 0, gpuTextured.data(), gpuTextured.size() * sizeof(GPUTexturedVertex));
     }
 
     return runs;
@@ -611,17 +600,17 @@ void GameRenderer::drawSpace(WGPURenderPassEncoder pass, const SpaceGPU& space, 
 }
 
 void GameRenderer::loop() {
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_EVENT_QUIT) {
-            running = false;
-        }
-        if (event.type == SDL_EVENT_WINDOW_RESIZED) {
-            configureSurface(event.window.data1, event.window.data2);
+    {
+        static int prev_x = 0, prev_y = 0;
+        int cur_x, cur_y;
+        SDL_GetWindowSizeInPixels(window, &cur_x, &cur_y);
+        if (prev_x != cur_x || prev_y != cur_y) {
+            configureSurface(cur_x, cur_y);
+            prev_x = cur_x;
+            prev_y = cur_y;
         }
     }
 
-    // --- Acquire next frame ---
     WGPUSurfaceTexture surfaceTexture{};
     wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
     if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal) return;
@@ -633,7 +622,7 @@ void GameRenderer::loop() {
     std::vector<DrawRun> worldRuns = buildAndUploadDraws(worldGPU, worldtris.coloured, worldtris.textured);
     std::vector<DrawRun> uiRuns = buildAndUploadDraws(uiGPU, ui_tris.coloured, ui_tris.textured);
 
-    updateTransform(worldGPU, (float)camera.x, (float)camera.y, camera.zoom);
+    updateTransform(worldGPU, (float)camera.x, (float)camera.y, camera._real_zoom);
     updateTransform(uiGPU, 0.0f, 0.0f, camera.uizoom);
 
     // --- Record commands ---
@@ -742,8 +731,8 @@ void GameRenderer::addAtlasFromData(std::string_view atlas_name, std::span<const
         return;
     }
     if (!device || !atlasSampler || !atlasBGL) {
-        std::fprintf(stderr, "addAtlasFromData called before renderer init completed for '%.*s'\n",
-                      (int)atlas_name.size(), atlas_name.data());
+        std::fprintf(
+            stderr, "addAtlasFromData called before renderer init completed for '%.*s'\n", (int)atlas_name.size(), atlas_name.data());
         return;
     }
 

@@ -5,8 +5,8 @@
 #include <LDtkLoader/Project.hpp>
 #include <SDL3/SDL.h>
 
-#include <cmrc/cmrc.hpp>
-extern cmrc::embedded_filesystem fs;
+#include <fs_utils.hpp>
+#include "utils.hpp"
 
 struct Game : Base::Application {
     void init() override {
@@ -27,21 +27,37 @@ struct Game : Base::Application {
         renderer->worldtris.coloured.push_back(tri[0]);
         renderer->worldtris.coloured.push_back(tri[1]);
         renderer->worldtris.coloured.push_back(tri[2]);
+        tri[0].rgba = 0x0000FF'FF;
+        tri[0].x = 1;
+        tri[0].y = 1;
+        tri[1].rgba = 0x00FF00'FF;
+        tri[1].x = 1;
+        tri[1].y = 0;
+        tri[2].rgba = 0xFF0000'FF;
+        tri[2].x = 0;
+        tri[2].y = 1;
+        renderer->worldtris.coloured.push_back(tri[0]);
+        renderer->worldtris.coloured.push_back(tri[1]);
+        renderer->worldtris.coloured.push_back(tri[2]);
 
         ldtk::Project main_world;
         {
-            auto file = fs.open("assets/main.ldtk");
-            const auto* data = reinterpret_cast<const unsigned char*>(file.begin());
-            size_t size = file.size();
-
-            main_world.loadFromMemory(data, size);
+            const std::span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
+            main_world.loadFromMemory(file.data(), file.size());
             std::print("Loaded world\n");
         }
 
         for (auto& tileset : main_world.allTilesets()) {
             std::print("Tileset\n- {}\n", tileset.path);
             // The path cannot be outside the embedded filesystem (the one in the binary)
-            if (tileset.path.starts_with("../")) std::print("- (INVALID PATH)\n");
+            if (tileset.path.starts_with("../"))
+                std::print("- (INVALID PATH)\n");
+            else {
+                // This means that the path mentioned is inside the `fs` so it can be fetched
+                std::string _path = "assets/" + tileset.path;
+                //renderer->addAtlasFromData(_path, fs_helper::get_bytes_from_file<unsigned char>(_path));
+                std::print("- (id={})", renderer->getAtlasId(_path));
+            }
         }
     }
 
@@ -49,16 +65,25 @@ struct Game : Base::Application {
         float up, down, left, right;
         void do_inputs(const SDL_Keycode keycode, float is_pressed) {
             switch (keycode) {
-                case SDLK_UP: up = is_pressed;
-                case SDLK_DOWN: down = is_pressed;
-                case SDLK_LEFT: left = is_pressed;
-                case SDLK_RIGHT: right = is_pressed;
+                case SDLK_UP:
+                    up = is_pressed;
+                    break;
+                case SDLK_DOWN:
+                    down = is_pressed;
+                    break;
+                case SDLK_LEFT:
+                    left = is_pressed;
+                    break;
+                case SDLK_RIGHT:
+                    right = is_pressed;
+                    break;
             }
         }
     } inputs;
 
     void loop() override {
         fps_counter->loop();
+        renderer->camera.update_zoom(fps_counter->deltaTime);
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -69,10 +94,15 @@ struct Game : Base::Application {
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
                     inputs.do_inputs(event.key.key, 1.0f);
+                    if (!event.key.repeat) {
+                        std::print("Key {} down!!1!\n", event.key.key);
+                        for (auto& i : renderer->worldtris.coloured) i.rgba = 0xFF0000'FF;
+                    }
                     break;
 
                 case SDL_EVENT_KEY_UP:
                     inputs.do_inputs(event.key.key, 0.0f);
+                    for (auto& i : renderer->worldtris.coloured) i.rgba = 0x00FF00'FF;
                     break;
             }
         }
@@ -85,7 +115,6 @@ struct Game : Base::Application {
         check_running(renderer.get());
         check_running(fps_counter.get());
         if (!running) return;
-
     }
 
     void quit() override {
