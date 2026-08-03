@@ -455,9 +455,9 @@ void GameRenderer::createSampler() {
     samplerDesc.addressModeU = WGPUAddressMode_ClampToEdge;
     samplerDesc.addressModeV = WGPUAddressMode_ClampToEdge;
     samplerDesc.addressModeW = WGPUAddressMode_ClampToEdge;
-    samplerDesc.magFilter = WGPUFilterMode_Linear;
-    samplerDesc.minFilter = WGPUFilterMode_Linear;
-    samplerDesc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+    samplerDesc.magFilter = WGPUFilterMode_Nearest;
+    samplerDesc.minFilter = WGPUFilterMode_Nearest;
+    samplerDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
     samplerDesc.lodMinClamp = 0.0f;
     samplerDesc.lodMaxClamp = 1.0f;
     samplerDesc.maxAnisotropy = 1;
@@ -737,7 +737,7 @@ void GameRenderer::addAtlasFromData(std::string_view atlas_name, std::span<const
     }
 
     int w, h, channels;
-    stbi_uc* pixels = stbi_load_from_memory(bytes.data(), (int)bytes.size(), &w, &h, &channels, STBI_rgb_alpha);
+    stbi_uc* pixels = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(bytes.data()), (int)bytes.size(), &w, &h, &channels, STBI_rgb_alpha);
     if (!pixels) {
         std::fprintf(stderr, "Failed to decode atlas '%.*s': %s\n", (int)atlas_name.size(), atlas_name.data(), stbi_failure_reason());
         return;
