@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -10,72 +12,106 @@
 extern "C" Base::BaseClass* GetRenderer();
 namespace Base {
     struct Renderer : BaseClass {
+        virtual ushort addTextureFromBytes(std::string_view name, std::span<const char> bytes) = 0;
+        virtual ushort getTextureID(std::string_view name) = 0;
+
         struct Vertex {
-            /// Affects parralax and the order it's drawn at.
-            int8_t depth = 0;
-            /// If two have the same layer then it's up to this one to decide what's in front and what's behind
-            int8_t layer = 0;
-            constexpr inline int16_t get_z_index() const noexcept {
-                typedef std::numeric_limits<typeof(layer)> limits;
-                constexpr auto layer_factor = mth::pow(2, sizeof(typeof(layer)) * 8);
-                return (int16_t)depth * layer_factor + (int16_t)layer;
-            }
+            union PosType {
+                struct WorldSpace {
+                    float depth;
+                    float x, y;
+                } world;
+                struct ScreenSpace {
+                    short x, y;
+                    enum AnchorPoint : char {
+                        TOP_LEFT = 0x1a,
+                        TOP_MID = 0x2a,
+                        TOP_RIGHT = 0x3a,
+                        LEFT = 0x1b,
+                        MID = 0x2b,
+                        RIGHT = 0x3b,
+                        BOTTOM_LEFT = 0x1c,
+                        BOTTOM_MID = 0x2c,
+                        BOTTOM_RIGHT = 0x3c,
+                    } anchor_point;
+                } screen;
+                char raw[12];
+            } pos;
 
-            float x, y;
+            union ShaderData {
+                struct RGBA {
+                    uint8_t r, g, b, a;
+                } rgba;
+                uint32_t rgba_combined;
+                struct TextureDesc {
+                    uint16_t texture_id;
+                    uint16_t u, v;
+                } texture;
+                char raw[6];
+            } shaderdata;
         };
-        struct ColouredVertex : Vertex {
-            uint32_t rgba;
+
+        // a pixel_shader that assumes a vertex uses shaderdata.rgba and coloures accordingly
+        virtual std::string_view builtin_coloured_pshader() = 0;
+        // a pixel_shader that assumes a vertex uses shaderdata.texture and shades accordingly
+        virtual std::string_view builtin_textured_pshader() = 0;
+
+        // a vertex_shader that assumes a vertex uses pos.world and sets it up accordingly
+        virtual std::string_view builtin_worldspace_vshader() = 0;
+        // a vertex_shader that assumes a vertex uses pos.screen and sets it up accordingly
+        virtual std::string_view builtin_uispace_vshader() = 0;
+
+        struct Material {
+            std::string_view vertex_shader;
+            std::string_view pixel_shader;
+
+            enum BlendMode {
+                Opaque,
+                Alpha,
+                Additive,
+                Multiply,
+                Screen,
+            } blend_mode;
+
+            bool screenspace = false;
+            std::span<const std::byte> params;
         };
-        struct TexturedVertex : Vertex {
-            uint8_t textureid;
-            uint16_t uvx, uvy;
+
+        struct PostEffect {
+            std::string_view pixel_shader;
+            std::span<const std::byte> params;
+            bool enabled = true;
         };
+        std::vector<PostEffect> post_queue{};
 
-        struct {
-            std::vector<ColouredVertex> coloured{};
-            std::vector<TexturedVertex> textured{};
-        } worldtris;
-
-        struct {
-            std::vector<ColouredVertex> coloured{};
-            std::vector<TexturedVertex> textured{};
-        } ui_tris;
-
-        /**
-         * @note MUST BE RAW BYTES FROM PNG
-         * @brief Stores the atlas.
-         * This is run before `init()` and cannot be run after `init()`
-         *
-         * The atlas ID has 255 reserved as "not found"
-         */
-        virtual void addAtlasFromData(std::string_view atlas_name, std::span<const unsigned char> bytes) = 0;
-        virtual uint8_t getAtlasId(std::string_view atlas_name) = 0;
         struct Camera {
             float x = 0, y = 0;
-            // zoom is how many tiles can fit into the screen width/height
-            // i.e zoom=1 means that a square one unit big fits the whole screen,
-            // while zoom=10 means that it a square 10 units big fits the whole screen
-            // so that it's consistent for window size.
-            double zoom = 10;
-            double _real_zoom = 0;
-
-            double zoom_speed = 15;
-            double zoom_snap_distance = 0.01;
-
-            // uizoom is how many ui pixels can fit into (min(screen width, screen height))
-            // so that it's also consistent for window size
-            double uizoom = 1;
-            inline void update_zoom(double dt) {
-                //_real_zoom = zoom;
+            double zoom = 10, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
+            void update_zoom(double dt) {
                 _real_zoom += (zoom - _real_zoom) / 2 * dt * zoom_speed;
                 if (mth::abs(zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = zoom;
             }
         } camera;
 
-        protected:
-        friend int ::main();
+        /**
+         * @brief
+         * Iterates over VertexList and compiles the shaders found in each material.
+         *
+         * @detail
+         * It will cache a const char* as well as the size and if two string_views have the same internal pointer,
+         * then no recompiling.
+         * That way the pointer is the ID, instead of having another ID system for shaders as well as textures
+         */
+        virtual void compile_all_shaders() = 0;
 
-        public:
+        struct VertexList {
+            std::span<const Vertex> vertices;
+            Material material;
+        };
+
+        /// These will be ordered first -> frontmost
+        std::vector<VertexList> render_queue{};
+
         inline static std::unique_ptr<Renderer> get() {
             std::unique_ptr<Renderer> retval = nullptr;
             retval.reset(dynamic_cast<Renderer*>(GetRenderer()));

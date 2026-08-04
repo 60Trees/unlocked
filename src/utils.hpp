@@ -23,3 +23,5 @@ constexpr inline uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a =
             static_cast<uint32_t>(a);
 }
 
+#define _disabled if constexpr (false)
+

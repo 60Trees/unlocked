@@ -26,7 +26,12 @@ void handle_loop(std::function<bool()> loop) {
 
 extern "C" Base::BaseClass* GetApplication();
 
+extern "C" long long funny_number_generator();
 int main() {
+    auto funny_number = funny_number_generator();
+    std::print("Today's funny number is: {}.", funny_number);
+    if (funny_number == 0) std::print("):\n");
+    else std::print("(:\n");
     std::print("{} v{}\n- {} commit# {}", PROJECT_NAME, PROJECT_VERSION, PROJECT_GIT_URL, PROJECT_GIT_COMMIT_HASH);
 
     std::print("Initializing...\n");

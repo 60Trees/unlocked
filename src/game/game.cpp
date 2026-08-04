@@ -16,58 +16,121 @@ struct Point {
 struct Game : Base::Application {
     std::string hi = "";
 
-    struct TexturedRectDescriptor {
+    typedef std::vector<Base::Renderer::Vertex> RenderLayer;
+
+    // worldspace, textured
+    std::vector<RenderLayer> leveltris;
+    // worldspace, coloured
+    RenderLayer shadowtris;
+
+    void update_renderer_layers() {
+        renderer->render_queue.clear();
+        auto& q = renderer->render_queue;
+
+        const auto worldspace = renderer->builtin_worldspace_vshader();
+        const auto uispace = renderer->builtin_uispace_vshader();
+        const auto textured = renderer->builtin_textured_pshader();
+        const auto coloured = renderer->builtin_coloured_pshader();
+
+        // q.push_back({shadowtris, {worldspace, coloured}});
+
+        for (auto& layer : leveltris) q.push_back({layer, {worldspace, textured}});
+        q.push_back({shadowtris, {worldspace, coloured, Base::Renderer::Material::Multiply}});
+    }
+
+    struct ColouredRectDescriptor {
+        template <typename T>
         struct Rect {
             /// left, top, right, bottom
-            float l, t, r, b;
+            T l, t, r, b;
         };
-        Rect pos;
-        Rect uv;
-        uint8_t atlas_index;
+        template <typename T>
+        struct RectCorners {
+            T tl, tr, bl, br;
+        };
+        Rect<float> pos;
+        RectCorners<uint32_t> colours;
         int8_t layer = 0;
-        int8_t parralax = 0;
+    };
+    struct TexturedRectDescriptor {
+        template <typename T>
+        struct Rect {
+            /// left, top, right, bottom
+            T l, t, r, b;
+        };
+        Rect<float> pos;
+        Rect<uint16_t> uv;
+        ushort atlas_index;
+        int8_t layer = 0;
     };
 
-    void make_square(TexturedRectDescriptor rect) {
-        Base::Renderer::TexturedVertex tris[6];
+    void make_coloured_square(ColouredRectDescriptor rect, std::vector<Base::Renderer::Vertex>& verts) {
+        std::array<Base::Renderer::Vertex, 6> tris;
 
         for (auto& tri : tris) {
-            tri.textureid = rect.atlas_index;
-            tri.layer = rect.layer;
-            tri.depth = rect.parralax;
+            tri.pos.world.depth = rect.layer;
         }
 
-        // Triangle 1: top-left, bottom-left, bottom-right
-        tris[0].x = rect.pos.l;
-        tris[0].y = rect.pos.t;
-        tris[0].uvx = rect.uv.l;
-        tris[0].uvy = rect.uv.t;
+        tris[0].pos.world.x = rect.pos.l;
+        tris[0].pos.world.y = rect.pos.t;
+        tris[0].shaderdata.rgba_combined = rect.colours.tl;
 
-        tris[1].x = rect.pos.l;
-        tris[1].y = rect.pos.b;
-        tris[1].uvx = rect.uv.l;
-        tris[1].uvy = rect.uv.b;
+        tris[1].pos.world.x = rect.pos.l;
+        tris[1].pos.world.y = rect.pos.b;
+        tris[1].shaderdata.rgba_combined = rect.colours.bl;
 
-        tris[2].x = rect.pos.r;
-        tris[2].y = rect.pos.b;
-        tris[2].uvx = rect.uv.r;
-        tris[2].uvy = rect.uv.b;
+        tris[2].pos.world.x = rect.pos.r;
+        tris[2].pos.world.y = rect.pos.b;
+        tris[2].shaderdata.rgba_combined = rect.colours.br;
 
-        // Triangle 2: top-left, bottom-right, top-right
         tris[3] = tris[0];
 
         tris[4] = tris[2];
 
-        tris[5].x = rect.pos.r;
-        tris[5].y = rect.pos.t;
-        tris[5].uvx = rect.uv.r;
-        tris[5].uvy = rect.uv.t;
+        tris[5].pos.world.x = rect.pos.r;
+        tris[5].pos.world.y = rect.pos.t;
+        tris[5].shaderdata.rgba_combined = rect.colours.br;
 
-        if (rect.atlas_index == 255)
+        for (auto& t : tris) verts.push_back(std::move(t));
+    }
+    void make_textured_square(TexturedRectDescriptor rect, std::vector<Base::Renderer::Vertex>& verts) {
+        if (rect.atlas_index == 0) {
             std::print("atlasIndex is invalid!\n");
-        else
-            // Push into renderer
-            for (auto& t : tris) renderer->worldtris.textured.push_back(t);
+            return;
+        }
+
+        std::array<Base::Renderer::Vertex, 6> tris;
+
+        for (auto& tri : tris) {
+            tri.shaderdata.texture.texture_id = rect.atlas_index;
+            tri.pos.world.depth = rect.layer;
+        }
+
+        tris[0].pos.world.x = rect.pos.l;
+        tris[0].pos.world.y = rect.pos.t;
+        tris[0].shaderdata.texture.u = rect.uv.l;
+        tris[0].shaderdata.texture.v = rect.uv.t;
+
+        tris[1].pos.world.x = rect.pos.l;
+        tris[1].pos.world.y = rect.pos.b;
+        tris[1].shaderdata.texture.u = rect.uv.l;
+        tris[1].shaderdata.texture.v = rect.uv.b;
+
+        tris[2].pos.world.x = rect.pos.r;
+        tris[2].pos.world.y = rect.pos.b;
+        tris[2].shaderdata.texture.u = rect.uv.r;
+        tris[2].shaderdata.texture.v = rect.uv.b;
+
+        tris[3] = tris[0];
+
+        tris[4] = tris[2];
+
+        tris[5].pos.world.x = rect.pos.r;
+        tris[5].pos.world.y = rect.pos.t;
+        tris[5].shaderdata.texture.u = rect.uv.r;
+        tris[5].shaderdata.texture.v = rect.uv.t;
+
+        for (auto& t : tris) verts.push_back(std::move(t));
     }
 
     void init() override {
@@ -91,24 +154,27 @@ struct Game : Base::Application {
             else {
                 // This means that the path mentioned is inside the `fs` so it can be fetched
                 std::string _path = "assets/" + tileset.path;
-                renderer->addAtlasFromData(_path, fs_helper::get_bytes_from_file<unsigned char>(_path));
+                renderer->addTextureFromBytes(_path, fs_helper::get_bytes_from_file<char>(_path));
                 hi = _path;
-                std::print("- (id={})\n", renderer->getAtlasId(_path));
+                std::print("- (id={})\n", renderer->getTextureID(_path));
             }
         }
 
-        const auto atlasid = renderer->getAtlasId(hi);
+        const auto atlasid = renderer->getTextureID(hi);
 
+        leveltris.push_back({});
+        make_textured_square({{0, 0, 1, 1}, {0, 128, 128, 0}, atlasid}, leveltris[0]);
         for (auto& world : main_world.allWorlds()) {
             auto& level = world.allLevels()[0];
             const auto& size = level.size;
             for (auto& layer : level.allLayers()) {
                 if (!layer.hasTileset()) continue;
+                leveltris.push_back({});
                 auto tileset = layer.getTileset();
-                auto atlas_id = renderer->getAtlasId("assets/" + tileset.path);
+                auto atlas_id = renderer->getTextureID("assets/" + tileset.path);
                 // std::print("Atlas ID: {}\n", atlas_id);
                 // auto atlas_id = atlasid;
-                if (atlas_id == 255) std::print("Atlas ID for {} is invalid!\n", tileset.path);
+                if (atlas_id == 0) std::print("Atlas ID for {} is invalid!\n", tileset.path);
                 uint order = 0;
                 // std::map<ldtk::IntPoint, std::pair<size_t, TexturedRectDescriptor>> tiles{};
                 struct IntPoint {
@@ -122,38 +188,42 @@ struct Game : Base::Application {
                 std::map<IntPoint, std::pair<size_t, TexturedRectDescriptor>> tiles_to_do;
                 for (auto& tile : layer.allTiles()) {
                     auto tilepos = tile.getGridPosition();
-                    //if (tiles_to_do.contains(tilepos) && tiles_to_do[tilepos].first < order) continue;
+                    // if (tiles_to_do.contains(tilepos) && tiles_to_do[tilepos].first < order) continue;
                     auto texturerect = tile.getTextureRect();
 
-                    float u0 = texturerect.x;
-                    float u1 = texturerect.x + texturerect.width;
-                    float v0 = texturerect.y + texturerect.height;  // your existing vertical flip
-                    float v1 = texturerect.y;
+                    TexturedRectDescriptor rect;
+                    rect.pos = {(float)tilepos.x, (float)-tilepos.y, (float)tilepos.x + 1, (float)-tilepos.y + 1};
+                    rect.atlas_index = atlas_id;
+                    // rect.layer = (int8_t)order;
 
-                    if (tile.flipX) std::swap(u0, u1);
-                    if (tile.flipY) std::swap(v0, v1);
+                    // u0
+                    rect.uv.l = texturerect.x;
+                    // u1
+                    rect.uv.t = texturerect.y + texturerect.width;
+                    // v0
+                    rect.uv.r = texturerect.x + texturerect.height;  // your existing vertical flip
+                    // v1
+                    rect.uv.b = texturerect.y;
+
+                    if (tile.flipX) std::swap(rect.uv.l, rect.uv.r);
+                    if (tile.flipY) std::swap(rect.uv.t, rect.uv.b);
 
                     // if (tiles.contains(tilepos) && ((tiles[tilepos].first) > order - 1)) continue;
 
-                    const TexturedRectDescriptor rect = {
-                        {(float)tilepos.x, (float)-tilepos.y, (float)tilepos.x + 1, (float)-tilepos.y + 1},
-                        {u0, v0, u1, v1},
-                        atlas_id,
-                        static_cast<int8_t>(order)
-                    };
-                    make_square(rect);
+                    make_textured_square(rect, leveltris.back());
 
-                    //tiles_to_do[tilepos] = {order, rect};
+                    // tiles_to_do[tilepos] = {order, rect};
 
                     order++;
                 }
 
-                //for (auto& x : tiles_to_do) make_square(x.second.second);
+                // for (auto& x : tiles_to_do) make_square(x.second.second);
             }
         }
 
-        std::print("Atlas ID={}", atlasid);
+        std::print("Atlas ID={}\n", atlasid);
 
+        /*
         Base::Renderer::ColouredVertex tri[3];
         tri[0].rgba = 0x0000FF'FF;
         tri[0].x = 0;
@@ -180,9 +250,13 @@ struct Game : Base::Application {
         renderer->worldtris.coloured.push_back(tri[0]);
         renderer->worldtris.coloured.push_back(tri[1]);
         renderer->worldtris.coloured.push_back(tri[2]);
+        //*/
 
         // std::print("Real square:\n");
-        // make_square(0, 0, 1, 1, 0, 16, 16, 0, atlasid);
+
+        update_renderer_layers();
+
+        renderer->compile_all_shaders();
     }
 
     struct {
@@ -218,15 +292,10 @@ struct Game : Base::Application {
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
                     inputs.do_inputs(event.key.key, 1.0f);
-                    if (!event.key.repeat) {
-                        std::print("Key {} down!!1!\n", event.key.key);
-                        for (auto& i : renderer->worldtris.coloured) i.rgba = 0xFF0000'FF;
-                    }
                     break;
 
                 case SDL_EVENT_KEY_UP:
                     inputs.do_inputs(event.key.key, 0.0f);
-                    for (auto& i : renderer->worldtris.coloured) i.rgba = 0x00FF00'FF;
                     break;
             }
         }
