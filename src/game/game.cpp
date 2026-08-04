@@ -16,12 +16,30 @@ struct Point {
 struct Game : Base::Application {
     std::string hi = "";
 
+    // New pixel shader for the saturation post effect.
+    // prevTex, prevSamp, params, and VSOut are already declared by buildPostPipeline() —
+    // this only needs to define fs_main.
+    static constexpr std::string_view saturationPS = R"(
+    @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
+        let colour = textureSample(prevTex, prevSamp, in.uv);
+        let sat = params[0].x;
+        let luma = dot(colour.rgb, vec3f(0.2126, 0.7152, 0.0722));
+        let outRGB = mix(vec3f(luma), colour.rgb, sat);
+        return vec4f(outRGB, colour.a);
+    }
+    )";
+
+    // 1.0 = unchanged, >1.0 = more saturated, 0.0 = grayscale.
+    // Padded to 16 bytes just for clarity; kParamMax (256B) gives plenty of room if you add more fields later.
+    struct SaturationParams {
+        float saturation;
+        float _pad[3];
+    } saturationParams{1.0f};
+
     typedef std::vector<Base::Renderer::Vertex> RenderLayer;
 
     // worldspace, textured
     std::vector<RenderLayer> leveltris;
-    // worldspace, coloured
-    RenderLayer shadowtris;
 
     void update_renderer_layers() {
         renderer->render_queue.clear();
@@ -32,10 +50,11 @@ struct Game : Base::Application {
         const auto textured = renderer->builtin_textured_pshader();
         const auto coloured = renderer->builtin_coloured_pshader();
 
+        renderer->post_queue.push_back({saturationPS, std::as_bytes(std::span(&saturationParams, 1)), true});
+
         // q.push_back({shadowtris, {worldspace, coloured}});
 
-        for (auto& layer : leveltris) q.push_back({layer, {worldspace, textured}});
-        q.push_back({shadowtris, {worldspace, coloured, Base::Renderer::Material::Multiply}});
+        for (auto& layer : leveltris) q.push_back({layer, {worldspace, textured, Base::Renderer::Material::Alpha}});
     }
 
     struct ColouredRectDescriptor {
@@ -186,22 +205,26 @@ struct Game : Base::Application {
                     auto operator<=>(const ldtk::IntPoint& o) const { return this->operator<=>(IntPoint{o}); }
                 };
                 std::map<IntPoint, std::pair<size_t, TexturedRectDescriptor>> tiles_to_do;
+
                 for (auto& tile : layer.allTiles()) {
-                    auto tilepos = tile.getGridPosition();
+                    auto tilepos = tile.getPosition();
+                    auto tilesize = layer.getCellSize();
+                    float scaloid = 1.0f;
                     // if (tiles_to_do.contains(tilepos) && tiles_to_do[tilepos].first < order) continue;
                     auto texturerect = tile.getTextureRect();
 
                     TexturedRectDescriptor rect;
-                    rect.pos = {(float)tilepos.x, (float)-tilepos.y, (float)tilepos.x + 1, (float)-tilepos.y + 1};
+                    rect.pos = {(float)tilepos.x, (float)-tilepos.y * scaloid, ((float)tilepos.x + tilesize) * scaloid,
+                        ((float)-tilepos.y + tilesize) * scaloid};
                     rect.atlas_index = atlas_id;
                     // rect.layer = (int8_t)order;
 
                     // u0
                     rect.uv.l = texturerect.x;
                     // u1
-                    rect.uv.t = texturerect.y + texturerect.width;
+                    rect.uv.t = texturerect.y + texturerect.height;
                     // v0
-                    rect.uv.r = texturerect.x + texturerect.height;  // your existing vertical flip
+                    rect.uv.r = texturerect.x + texturerect.width;  // your existing vertical flip
                     // v1
                     rect.uv.b = texturerect.y;
 
@@ -261,19 +284,19 @@ struct Game : Base::Application {
 
     struct {
         float up, down, left, right;
-        void do_inputs(const SDL_Keycode keycode, float is_pressed) {
+        void do_inputs(const SDL_Keycode keycode, float speed) {
             switch (keycode) {
                 case SDLK_UP:
-                    up = is_pressed;
+                    up = speed;
                     break;
                 case SDLK_DOWN:
-                    down = is_pressed;
+                    down = speed;
                     break;
                 case SDLK_LEFT:
-                    left = is_pressed;
+                    left = speed;
                     break;
                 case SDLK_RIGHT:
-                    right = is_pressed;
+                    right = speed;
                     break;
             }
         }
@@ -291,7 +314,7 @@ struct Game : Base::Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
-                    inputs.do_inputs(event.key.key, 1.0f);
+                    inputs.do_inputs(event.key.key, 16.0f);
                     break;
 
                 case SDL_EVENT_KEY_UP:

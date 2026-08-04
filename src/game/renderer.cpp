@@ -224,6 +224,7 @@ void GameRenderer::init() {
     SDL_GetWindowSizeInPixels(window, &w, &h);
     configureSurface(w, h);
     createLayoutsAndStatics();
+    ensureParamsScratch(kParamAlign);
     resizeSceneTargets();
 
     // texture_id=0 is a 1x1 white dummy so coloured/untextured materials always have something
@@ -259,7 +260,13 @@ void GameRenderer::init() {
 void GameRenderer::configureSurface(int width, int height) {
     WGPUSurfaceCapabilities caps{};
     wgpuSurfaceGetCapabilities(surface, adapter, &caps);
-    surfaceFormat = caps.formatCount > 0 ? caps.formats[0] : WGPUTextureFormat_BGRA8Unorm;
+    surfaceFormat = WGPUTextureFormat_BGRA8Unorm;
+    for (uint32_t i = 0; i < caps.formatCount; ++i) {
+        if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm || caps.formats[i] == WGPUTextureFormat_RGBA8Unorm) {
+            surfaceFormat = caps.formats[i];
+            break;
+        }
+    }
     wgpuSurfaceCapabilitiesFreeMembers(caps);
     surfaceWidth = (uint32_t)width;
     surfaceHeight = (uint32_t)height;

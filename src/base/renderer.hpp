@@ -86,7 +86,7 @@ namespace Base {
 
         struct Camera {
             float x = 0, y = 0;
-            double zoom = 10, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
+            double zoom = 160, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
             void update_zoom(double dt) {
                 _real_zoom += (zoom - _real_zoom) / 2 * dt * zoom_speed;
                 if (mth::abs(zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = zoom;
