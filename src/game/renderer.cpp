@@ -75,6 +75,9 @@ static constexpr const char* kColouredPS = R"(
 // texture_id (low 16 bits of sdRaw.x) is resolved CPU-side to a bound atlas per draw; only u,v
 // (high 16 of sdRaw.x, low 16 of sdRaw.y) are needed here.
 static constexpr const char* kTexturedPS = R"(
+// USES_TEXTURES
+// The engine checks if that string exists in the file.
+// If so, then it adds the texture info to the shaderdata
 @group(1) @binding(0) var atlasTex: texture_2d<f32>;
 @group(1) @binding(1) var atlasSamp: sampler;
 @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
@@ -99,6 +102,11 @@ struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @fragment fn fs_main(in: VSOut) -> @location(0) vec4f { return textureSample(prevTex, prevSamp, in.uv); }
 )";
 
+static constexpr std::string_view kBuiltinVertexShaders[] = {kWorldVS, kScreenVS};
+static constexpr std::string_view kBuiltinPixelShaders[] = {kColouredPS, kTexturedPS};
+static constexpr Base::Renderer::BlendMode kAllBlendModes[] = {Base::Renderer::Opaque, Base::Renderer::Alpha,
+    Base::Renderer::Additive, Base::Renderer::Multiply, Base::Renderer::Screen};
+
 static constexpr uint32_t kParamAlign = 256;  // WebGPU's minUniformBufferOffsetAlignment floor
 static constexpr uint32_t kParamMax = 256;    // per-draw params budget; raise if you need bigger structs
 
@@ -108,14 +116,18 @@ class GameRenderer : public Base::Renderer {
     void loop() override;
     void quit() override;
 
+    void compile_default_shaders() override;
+    void precompile_shaders(std::span<const std::string_view> pixel_shaders, std::span<const BlendMode> blend_modes,
+        std::span<const std::string_view> vertex_shaders) override;
+
     uint16_t addTextureFromBytes(std::string_view name, std::span<const char> bytes) override;
     uint16_t getTextureID(std::string_view name) override;
 
-    std::string_view builtin_coloured_pshader() override { return kColouredPS; }
-    std::string_view builtin_textured_pshader() override { return kTexturedPS; }
-    std::string_view builtin_worldspace_vshader() override { return kWorldVS; }
-    std::string_view builtin_uispace_vshader() override { return kScreenVS; }
-    void compile_all_shaders() override;
+    std::string_view builtin_coloured_pshader() const override { return kColouredPS; }
+    std::string_view builtin_textured_pshader() const override { return kTexturedPS; }
+    std::string_view builtin_worldspace_vshader() const override { return kWorldVS; }
+    std::string_view builtin_uispace_vshader() const override { return kScreenVS; }
+    void compile_used_shaders() override;
 
     private:
     struct GPUVertex {
@@ -131,7 +143,7 @@ class GameRenderer : public Base::Renderer {
         const void* vs;
         const void* ps;
         bool screenspace;
-        Material::BlendMode blend;
+        BlendMode blend;
         bool operator<(const PipelineKey& o) const {
             return std::tie(vs, ps, screenspace, blend) < std::tie(o.vs, o.ps, o.screenspace, o.blend);
         }
@@ -525,23 +537,23 @@ WGPURenderPipeline GameRenderer::buildPipeline(const Material& mat) {
 
     WGPUBlendState blend{};
     switch (mat.blend_mode) {
-        case Material::Opaque:
+        case Opaque:
             blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_Zero};
             blend.alpha = blend.color;
             break;
-        case Material::Alpha:
+        case Alpha:
             blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
             blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
             break;
-        case Material::Additive:
+        case Additive:
             blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_One};
             blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_One};
             break;
-        case Material::Multiply:
+        case Multiply:
             blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_Dst, WGPUBlendFactor_Zero};
             blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_Zero};
             break;
-        case Material::Screen:
+        case Screen:
             blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_OneMinusDst, WGPUBlendFactor_One};
             blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_Zero};
             break;
@@ -610,29 +622,68 @@ GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx)
     return pp;
 }
 
-void GameRenderer::compile_all_shaders() {
-    for (const VertexList& vl : render_queue) {
+void GameRenderer::compile_used_shaders() {
+    for (size_t i = 0; i < render_queue.size(); i++) {
+        VertexLayer& vl = render_queue[i];
+
         PipelineKey key{vl.material.vertex_shader.data(), vl.material.pixel_shader.data(), vl.material.screenspace, vl.material.blend_mode};
+
         if (!pipelines.contains(key)) pipelines[key] = buildPipeline(vl.material);
     }
     for (const PostEffect& fx : post_queue) {
         PostKey key{fx.pixel_shader.data()};
         auto it = postPipelines.find(key);
+
         if (it == postPipelines.end()) {
             postPipelines[key] = buildPostPipeline(fx);
             continue;
         }
+
         if (it->second.bg[0]) continue;  // still valid
+
         // resize dropped the bind groups (they referenced the old scene views) — rebuild them
         WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(it->second.pipeline, 0);
+
         for (int i = 0; i < 2; ++i) {
             WGPUBindGroupEntry e[3] = {{.binding = 0, .textureView = sceneView[i]}, {.binding = 1, .sampler = postSampler},
                 {.binding = 2, .buffer = paramsScratch, .size = kParamMax}};
+
             WGPUBindGroupDescriptor d{.label = "Post Effect BG"_wgpu, .layout = bgl, .entryCount = 3, .entries = e};
+
             it->second.bg[i] = wgpuDeviceCreateBindGroup(device, &d);
         }
     }
 }
+
+// Builds (and caches) a pipeline for every combination of the given vertex/pixel shaders and
+// blend modes, whether or not anything in render_queue currently uses them. Safe to call
+// repeatedly — pipelines already in the map are skipped, so this composes fine with
+// compile_all_shaders() running every frame.
+void GameRenderer::precompile_shaders(std::span<const std::string_view> pixel_shaders, std::span<const BlendMode> blend_modes,
+    std::span<const std::string_view> vertex_shaders) {
+    for (std::string_view vs : vertex_shaders) {
+        // Convention: kScreenVS-paired materials are the ones that set screenspace = true.
+        // If that's not how your Material is populated elsewhere, adjust this line to match.
+        bool screenspace = (vs.data() == kScreenVS);
+        for (std::string_view ps : pixel_shaders) {
+            for (BlendMode blend : blend_modes) {
+                PipelineKey key{vs.data(), ps.data(), screenspace, blend};
+                if (pipelines.contains(key)) continue;
+
+                Material mat{};
+                mat.vertex_shader = vs;
+                mat.pixel_shader = ps;
+                mat.screenspace = screenspace;
+                mat.blend_mode = blend;
+                pipelines[key] = buildPipeline(mat);
+            }
+        }
+    }
+}
+
+// Warms every builtin vertex/pixel shader combination across every blend mode, regardless of
+// whether render_queue currently contains a material that uses them.
+void GameRenderer::compile_default_shaders() { precompile_shaders(kBuiltinPixelShaders, kAllBlendModes, kBuiltinVertexShaders); }
 
 // ============================== per-frame ==============================
 
@@ -687,7 +738,7 @@ void GameRenderer::loop() {
     lastTick = now;
     camera.update_zoom(dt);
 
-    compile_all_shaders();
+    compile_used_shaders();
 
     WGPUSurfaceTexture st{};
     wgpuSurfaceGetCurrentTexture(surface, &st);
@@ -709,7 +760,8 @@ void GameRenderer::loop() {
     static thread_local std::vector<uint32_t> firstVertex;  // per VertexList
     gpuVerts.clear();
     firstVertex.clear();
-    for (const VertexList& vl : render_queue) {
+    for (size_t i = 0; i < render_queue.size(); i++) {
+        VertexLayer& vl = render_queue[i];
         firstVertex.push_back((uint32_t)gpuVerts.size());
         for (const Vertex& v : vl.vertices) gpuVerts.push_back(packVertex(v));
     }
@@ -748,14 +800,14 @@ void GameRenderer::loop() {
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pd);
         if (vertexScratch) wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexScratch, 0, gpuVerts.size() * sizeof(GPUVertex));
         for (size_t i = 0; i < render_queue.size(); ++i) {
-            const VertexList& vl = render_queue[i];
+            const VertexLayer& vl = render_queue[i];
             if (vl.vertices.empty()) continue;
             const Material& mat = vl.material;
             PipelineKey key{mat.vertex_shader.data(), mat.pixel_shader.data(), mat.screenspace, mat.blend_mode};
             wgpuRenderPassEncoderSetPipeline(pass, pipelines.at(key));
             wgpuRenderPassEncoderSetBindGroup(pass, 0, mat.screenspace ? uiBG : worldBG, 0, nullptr);
             uint16_t texId = nullTextureId;
-            if (mat.pixel_shader.data() == kTexturedPS) std::memcpy(&texId, vl.vertices[0].shaderdata.raw, sizeof(texId));
+            if (mat.pixel_shader.contains("USES_TEXTURES")) std::memcpy(&texId, vl.vertices[0].shaderdata.raw, sizeof(texId));
             wgpuRenderPassEncoderSetBindGroup(pass, 1, textures[texId < textures.size() ? texId : nullTextureId].bindGroup, 0, nullptr);
             uint32_t dynOff = matParamOffset[i];
             wgpuRenderPassEncoderSetBindGroup(pass, 2, paramsScratchBG, 1, &dynOff);

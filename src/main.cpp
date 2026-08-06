@@ -37,6 +37,7 @@ int main() {
     Base::BaseClass* app = GetApplication();
     app->init();
 
+    std::print("Looping...\n");
     handle_loop([&app]() {
         app->loop();
         return app->running;

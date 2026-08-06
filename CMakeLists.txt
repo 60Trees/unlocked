@@ -46,7 +46,11 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/nothings/stb.git
     GIT_TAG master
 )
-
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 1.0.1 # or the version you want
+)
 FetchContent_Declare(
     webgpu
     GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution
@@ -106,6 +110,7 @@ FetchContent_MakeAvailable(
     LDtkLoader
     sdl3webgpu
     stb
+    glm
 )
 
 if(EMSCRIPTEN)
@@ -173,6 +178,7 @@ target_link_libraries(${PROJECT_NAME_VAR}
         LDtkLoader
         webgpu
         sdl3webgpu
+        glm
 )
 
 if(NOT EMSCRIPTEN)
