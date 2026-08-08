@@ -141,8 +141,12 @@ struct WorldHandlerImpl : Game::WorldHandler {
         for (auto& tileset : main_world.allTilesets()) {
             try {
                 string _path = "assets/" + tileset.path;
+                if (tileset.path.empty()) continue;
                 if (logs) print("Tileset\n- {}\n", _path);
-
+                if (!fs.exists(_path)) {
+                    if (logs) print("- (INVALID PATH)\n");
+                    continue;
+                }
                 r.addTextureFromBytes(_path, fs_helper::get_bytes_from_file<char>(_path));
                 if (logs) print("- (id={})\n", r.getTextureID(_path));
             } catch (std::system_error) {
