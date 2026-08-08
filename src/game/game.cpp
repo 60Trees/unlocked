@@ -11,6 +11,7 @@
 
 #include <fs_utils.hpp>
 #include <utility>
+#include "game/base/world_handler.hpp"
 
 using namespace std;
 using namespace Game;
@@ -23,7 +24,6 @@ struct Point {
 using VertexArray = Renderer::VertexArray;
 
 struct GameClass : Application {
-    string hi = "";
     EntityList entities;
     EntityList::index_t camera_following_entity = EntityList::null_index;
 
@@ -102,140 +102,36 @@ struct GameClass : Application {
         map<EntityList::index_t, size_t> _raw{};
     } entitytrisindex{entitytris};
 
-    void update_renderer_layers() {
-        auto& q = renderer->render_queue;
-        q.clear();
+    Renderer::RenderQueue renderqueue{};
 
-        q.append(entitytris);
-        q.append(leveltris);
+    void update_renderer_layers() {
+        renderqueue.clear();
+
+        renderqueue.append(entitytris);
+        renderqueue.append(leveltris);
     }
 
+    vector<string> worldnames{};
+    map<string, vector<string>> levelnames{};
+
+    unique_ptr<Game::WorldHandler> world_handler{GetWorldHandler()};
+
     void init() override {
+        print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
+
+        renderer->renderqueue = [&] -> Renderer::RenderQueue& { return renderqueue; };
         renderer->init();
         fps_counter->init();
 
-        ldtk::Project main_world;
         {
             const span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
-            main_world.loadFromMemory(file.data(), file.size());
+            world_handler->main_world.loadFromMemory(file.data(), file.size());
             print("Loaded world\n");
         }
 
-        print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
+        world_handler->uploadAllTilesets(*renderer);
 
-        for (auto& tileset : main_world.allTilesets()) {
-            print("Tileset\n- {}\n", tileset.path);
-            // The path cannot be outside the embedded filesystem (the one in the binary)
-            if (tileset.path.starts_with("../"))
-                print("- (INVALID PATH)\n");
-            else {
-                // This means that the path mentioned is inside the `fs` so it can be fetched
-                string _path = "assets/" + tileset.path;
-                renderer->addTextureFromBytes(_path, fs_helper::get_bytes_from_file<char>(_path));
-                hi = _path;
-                print("- (id={})\n", renderer->getTextureID(_path));
-            }
-        }
-
-        const auto atlasid = renderer->getTextureID(hi);
-
-        // leveltris->push_back({});
-        // Renderer::make_textured_square({{0, 0, 1, 1}, {0, 128, 128, 0}, atlasid}, leveltris->at(0));
-        for (auto& world : main_world.allWorlds()) {
-            auto& level = world.allLevels()[0];
-            const auto& size = level.size;
-            for (auto& layer : level.allLayers()) {
-                if (!layer.hasTileset()) continue;
-                leveltris->push_back({});
-                leveltris->back().material.pixel_shader = renderer->builtin_textured_pshader();
-                leveltris->back().material.vertex_shader = renderer->builtin_worldspace_vshader();
-                auto tileset = layer.getTileset();
-                auto atlas_id = renderer->getTextureID("assets/" + tileset.path);
-                // print("Atlas ID: {}\n", atlas_id);
-                // auto atlas_id = atlasid;
-                if (atlas_id == 0) print("Atlas ID for {} is invalid!\n", tileset.path);
-                uint order = 0;
-                // map<ldtk::IntPoint, pair<size_t, TexturedRectDescriptor>> tiles{};
-                struct IntPoint {
-                    int x, y;
-                    IntPoint(const ldtk::IntPoint& o) : x(o.x), y(o.y) {}
-                    IntPoint(IntPoint&&) = default;
-                    IntPoint(const IntPoint& o) : x(o.x), y(o.y) {}
-                    auto operator<=>(const IntPoint&) const = default;
-                    auto operator<=>(const ldtk::IntPoint& o) const { return this->operator<=>(IntPoint{o}); }
-                };
-                map<IntPoint, pair<size_t, TexturedRectDescriptor>> tiles_to_do;
-
-                for (auto& tile : layer.allTiles()) {
-                    auto tilepos = tile.getPosition();
-                    auto tilesize = layer.getCellSize();
-                    float scaloid = 1.0f;
-                    // if (tiles_to_do.contains(tilepos) && tiles_to_do[tilepos].first < order) continue;
-                    auto texturerect = tile.getTextureRect();
-
-                    TexturedRectDescriptor rect;
-                    rect.pos = {(float)tilepos.x, (float)-tilepos.y * scaloid, ((float)tilepos.x + tilesize) * scaloid,
-                        ((float)-tilepos.y + tilesize) * scaloid};
-                    rect.atlas_index = atlas_id;
-                    // rect.layer = (int8_t)order;
-
-                    // u0
-                    rect.uv.l = texturerect.x;
-                    // u1
-                    rect.uv.t = texturerect.y + texturerect.height;
-                    // v0
-                    rect.uv.r = texturerect.x + texturerect.width;  // your existing vertical flip
-                    // v1
-                    rect.uv.b = texturerect.y;
-
-                    if (tile.flipX) swap(rect.uv.l, rect.uv.r);
-                    if (tile.flipY) swap(rect.uv.t, rect.uv.b);
-
-                    // if (tiles.contains(tilepos) && ((tiles[tilepos].first) > order - 1)) continue;
-
-                    Renderer::make_textured_square(rect, leveltris->back().vertices);
-
-                    // tiles_to_do[tilepos] = {order, rect};
-
-                    order++;
-                }
-
-                // for (auto& x : tiles_to_do) make_square(x.second.second);
-            }
-        }
-
-        print("Atlas ID={}\n", atlasid);
-
-        /*
-        Renderer::ColouredVertex tri[3];
-        tri[0].rgba = 0x0000FF'FF;
-        tri[0].x = 0;
-        tri[0].y = 0;
-        tri[1].rgba = 0x00FF00'FF;
-        tri[1].x = 0;
-        tri[1].y = 1;
-        tri[2].rgba = 0xFF0000'FF;
-        tri[2].x = 1;
-        tri[2].y = 0;
-
-        renderer->worldtris.coloured.push_back(tri[0]);
-        renderer->worldtris.coloured.push_back(tri[1]);
-        renderer->worldtris.coloured.push_back(tri[2]);
-        tri[0].rgba = 0x0000FF'FF;
-        tri[0].x = 1;
-        tri[0].y = 1;
-        tri[1].rgba = 0x00FF00'FF;
-        tri[1].x = 1;
-        tri[1].y = 0;
-        tri[2].rgba = 0xFF0000'FF;
-        tri[2].x = 0;
-        tri[2].y = 1;
-        renderer->worldtris.coloured.push_back(tri[0]);
-        renderer->worldtris.coloured.push_back(tri[1]);
-        renderer->worldtris.coloured.push_back(tri[2]);
-        //*/
-
-        // print("Real square:\n");
+        world_handler->render(world_handler->getlevel(0, 0), *renderer, *leveltris);
 
         update_renderer_layers();
 
@@ -305,9 +201,6 @@ struct GameClass : Application {
 
             if (entities.exists(camera_following_entity))
                 renderer->camera.follow_point(entities[camera_following_entity].data.hitbox_center(), fps_counter->deltaTime);
-
-            // renderer->camera.x += (inputs.right - inputs.left) * fps_counter->deltaTime;
-            // renderer->camera.y += (inputs.up - inputs.down) * fps_counter->deltaTime;
         }
 
         bool should_clean_entities = false;

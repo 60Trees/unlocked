@@ -48,7 +48,7 @@ namespace Game {
 
             inline double left_edge() const { return pos.x - size.x / 2; }
             inline double right_edge() const { return pos.x + size.x / 2; }
-            inline double top_edge() const { return pos.y + size.x / 2; }
+            inline double top_edge() const { return pos.y + size.y; }
             inline double bottom_edge() const { return pos.y; }
             inline vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
         } data;

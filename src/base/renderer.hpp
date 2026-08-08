@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <print>
 #include <span>
 #include <string_view>
@@ -130,7 +131,7 @@ namespace Base {
         };
         using VertexArray = std::vector<VertexLayer>;
 
-        struct {
+        struct RenderQueue {
             std::vector<std::shared_ptr<VertexArray>> raw;
             inline size_t size() const {
                 size_t retval = 0;
@@ -166,7 +167,12 @@ namespace Base {
 
             // Disowns all VertexArrays. Their contents are not touched
             inline void clear() { raw.clear(); }
-        } render_queue;
+        };
+
+        std::function<RenderQueue&()> renderqueue = [] -> RenderQueue& {
+            static RenderQueue render_queue{};
+            return render_queue;
+        };
 
         /// These will be ordered first -> frontmost
 

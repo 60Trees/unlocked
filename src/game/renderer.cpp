@@ -623,8 +623,8 @@ GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx)
 }
 
 void GameRenderer::compile_used_shaders() {
-    for (size_t i = 0; i < render_queue.size(); i++) {
-        VertexLayer& vl = render_queue[i];
+    for (size_t i = 0; i < renderqueue().size(); i++) {
+        VertexLayer& vl = renderqueue()[i];
 
         PipelineKey key{vl.material.vertex_shader.data(), vl.material.pixel_shader.data(), vl.material.screenspace, vl.material.blend_mode};
 
@@ -656,7 +656,7 @@ void GameRenderer::compile_used_shaders() {
 }
 
 // Builds (and caches) a pipeline for every combination of the given vertex/pixel shaders and
-// blend modes, whether or not anything in render_queue currently uses them. Safe to call
+// blend modes, whether or not anything in renderqueue() currently uses them. Safe to call
 // repeatedly — pipelines already in the map are skipped, so this composes fine with
 // compile_all_shaders() running every frame.
 void GameRenderer::precompile_shaders(std::span<const std::string_view> pixel_shaders, std::span<const BlendMode> blend_modes,
@@ -682,7 +682,7 @@ void GameRenderer::precompile_shaders(std::span<const std::string_view> pixel_sh
 }
 
 // Warms every builtin vertex/pixel shader combination across every blend mode, regardless of
-// whether render_queue currently contains a material that uses them.
+// whether renderqueue() currently contains a material that uses them.
 void GameRenderer::compile_default_shaders() { precompile_shaders(kBuiltinPixelShaders, kAllBlendModes, kBuiltinVertexShaders); }
 
 // ============================== per-frame ==============================
@@ -760,8 +760,8 @@ void GameRenderer::loop() {
     static thread_local std::vector<uint32_t> firstVertex;  // per VertexList
     gpuVerts.clear();
     firstVertex.clear();
-    for (size_t i = 0; i < render_queue.size(); i++) {
-        VertexLayer& vl = render_queue[i];
+    for (size_t i = 0; i < renderqueue().size(); i++) {
+        VertexLayer& vl = renderqueue()[i];
         firstVertex.push_back((uint32_t)gpuVerts.size());
         for (const Vertex& v : vl.vertices) gpuVerts.push_back(packVertex(v));
     }
@@ -773,7 +773,7 @@ void GameRenderer::loop() {
     // --- gather + upload params for every draw (materials + enabled post effects) at aligned offsets ---
     static thread_local std::vector<uint32_t> matParamOffset;
     static thread_local std::vector<uint32_t> postParamOffset;
-    matParamOffset.assign(render_queue.size(), 0);
+    matParamOffset.assign(renderqueue().size(), 0);
     postParamOffset.assign(post_queue.size(), 0);
     {
         size_t cursor = 0;
@@ -784,7 +784,7 @@ void GameRenderer::loop() {
             cursor += kParamAlign;
             return off;
         };
-        for (size_t i = 0; i < render_queue.size(); ++i) matParamOffset[i] = reserve(render_queue[i].material.params);
+        for (size_t i = 0; i < renderqueue().size(); ++i) matParamOffset[i] = reserve(renderqueue()[i].material.params);
         for (size_t i = 0; i < post_queue.size(); ++i) postParamOffset[i] = reserve(post_queue[i].params);
         ensureParamsScratch(std::max<size_t>(cursor, kParamAlign));
         for (auto& [src, off] : writes) wgpuQueueWriteBuffer(queue, paramsScratch, off, src, kParamMax);
@@ -792,15 +792,15 @@ void GameRenderer::loop() {
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, nullptr);
 
-    // --- main scene pass: render_queue, in order, into sceneTex[0] ---
+    // --- main scene pass: renderqueue(), in order, into sceneTex[0] ---
     {
         WGPURenderPassColorAttachment att{
             .view = sceneView[0], .loadOp = WGPULoadOp_Clear, .storeOp = WGPUStoreOp_Store, .clearValue = {0.1, 0.1, 0.1, 1.0}};
         WGPURenderPassDescriptor pd{.colorAttachmentCount = 1, .colorAttachments = &att};
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pd);
         if (vertexScratch) wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexScratch, 0, gpuVerts.size() * sizeof(GPUVertex));
-        for (size_t i = 0; i < render_queue.size(); ++i) {
-            const VertexLayer& vl = render_queue[i];
+        for (size_t i = 0; i < renderqueue().size(); ++i) {
+            const VertexLayer& vl = renderqueue()[i];
             if (vl.vertices.empty()) continue;
             const Material& mat = vl.material;
             PipelineKey key{mat.vertex_shader.data(), mat.pixel_shader.data(), mat.screenspace, mat.blend_mode};

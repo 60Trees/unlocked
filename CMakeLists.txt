@@ -191,6 +191,7 @@ target_include_directories(${PROJECT_NAME_VAR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/
         ${gcem_SOURCE_DIR}/include/
         ${stb_SOURCE_DIR}/
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib_helper/
 )
 
 target_compile_definitions(${PROJECT_NAME_VAR}

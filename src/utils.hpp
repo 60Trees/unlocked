@@ -79,3 +79,17 @@ namespace hidden {
 
 #define unimplemented_code throw std::logic_error("Unimplemented function reached")
 
+// <AI>
+#ifndef NDEBUG
+    #if defined(__x86_64__) || defined(__i386__)
+        #define DEBUG_BREAK() asm volatile("int3")
+    #elif defined(__aarch64__)
+        #define DEBUG_BREAK() asm volatile("brk #0")
+    #else
+        #include <csignal>
+        #define DEBUG_BREAK() raise(SIGTRAP)
+    #endif
+#else
+    #define DEBUG_BREAK() ((void)0)
+#endif
+// </AI>
