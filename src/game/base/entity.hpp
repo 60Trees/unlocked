@@ -1,6 +1,5 @@
 #pragma once
 
-#include <linux/fscrypt.h>
 #include <base/renderer.hpp>
 #include <base/base.hpp>
 #include <functional>

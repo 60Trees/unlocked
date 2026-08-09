@@ -10,6 +10,7 @@
 #include <map>
 #include <string>
 #include <sdl3webgpu.h>
+#include <iostream>
 
 #include <SDL3/SDL.h>
 #include <webgpu/webgpu.h>
@@ -109,6 +110,13 @@ static constexpr Base::Renderer::BlendMode kAllBlendModes[] = {Base::Renderer::O
 
 static constexpr uint32_t kParamAlign = 256;  // WebGPU's minUniformBufferOffsetAlignment floor
 static constexpr uint32_t kParamMax = 256;    // per-draw params budget; raise if you need bigger structs
+
+// TODO: Fix Emscripten with WGPU (its very broken)
+#ifdef __EMSCRITEN__
+#define spamlog(message) std::cout << message << std::endl
+#else
+#define spamlog(message)
+#endif
 
 class GameRenderer : public Base::Renderer {
     public:
@@ -220,14 +228,34 @@ extern "C" Base::BaseClass* GetRenderer() { return new GameRenderer(); }
 
 void GameRenderer::init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) throw _err(("SDL_Init failed: {}", SDL_GetError()));
+    spamlog("Initialized");
+
     window = SDL_CreateWindow("Run", 1280, 720, SDL_WINDOW_RESIZABLE);
+    spamlog("Created window");
+
     instance = wgpuCreateInstance(nullptr);
+    spamlog("Created WGPUInstane");
+
     surface = SDL_GetWGPUSurface(instance, window);
     if (!surface) throw _err(("Failed to get WGPU surface"));
+    spamlog("Created WGPUSurface");
 
     WGPURequestAdapterOptions ao{};
     ao.compatibleSurface = surface;
     adapter = requestAdapterSync(ao);
+    spamlog("Requested adapter");
+
+    WGPUAdapterInfo info{};
+    wgpuAdapterGetInfo(adapter, &info);
+
+    std::print("vendor: {}\n", std::string_view(info.vendor.data, info.vendor.length));
+    std::print("architecture: {}\n", std::string_view(info.architecture.data, info.architecture.length));
+    std::print("device: {}\n", std::string_view(info.device.data, info.device.length));
+    std::print("description: {}\n", std::string_view(info.description.data, info.description.length));
+
+#ifdef WGPU_VERSION_MAJOR
+    SDL_Log("WebGPU headers: %d.%d.%d", WGPU_VERSION_MAJOR, WGPU_VERSION_MINOR, WGPU_VERSION_PATCH);
+#endif
     WGPUDeviceDescriptor dd{.label = "Run Device"_wgpu, .defaultQueue = {.label = "Run Queue"_wgpu}};
     device = requestDeviceSync(dd);
     queue = wgpuDeviceGetQueue(device);

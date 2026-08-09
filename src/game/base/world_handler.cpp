@@ -4,7 +4,6 @@
 #include "LDtkLoader/thirdparty/json_fwd.hpp"
 #include "fs_utils.hpp"
 #include "glm/detail/qualifier.hpp"
-#include "utils.hpp"
 #include <sstream>
 #include <string>
 #include <nlohmann/json.hpp>
@@ -40,26 +39,12 @@ struct WorldHandlerImpl : Game::WorldHandler {
 
     void render(const ldtk::Level& level, Renderer& renderer, Renderer::VertexArray& leveltris, glm::vec<2, int> offset) override {
         collisions[&level] = {};
-        Game::CollisionMap& collisionmap = collisions[&level];
-        collisionmap.offset = offset;
+        Game::CollisionMap& lvlCollision = collisions[&level];
+        lvlCollision.offset = offset;
 
         remove_rendered(level, leveltris);
         auto& cur_owned_triangles = owned_triangles[&level];
         cur_owned_triangles.start_pos = leveltris.size();
-
-        // Json::Value collision_json;
-        //{
-        //     // <AI>
-        //     Json::CharReaderBuilder builder;
-        //     std::string errors;
-
-        //    std::istringstream stream();
-
-        //    if (!Json::parseFromStream(builder, stream, &collision_json, &errors)) {
-        //        std::cerr << "JSON parse error: " << errors << '\n';
-        //    }
-        //    // </AI>
-        //}
 
         istringstream stream(level.getField<string>("CollisionType").value());
         nlohmann::json collision_json = nlohmann::json::parse(stream);
@@ -72,10 +57,20 @@ struct WorldHandlerImpl : Game::WorldHandler {
             // print("Collision JSON: {}\n", nlohmann::to_string(collision_json));
             if (layer.getName() == collision_json["target_layer"].get<string>()) {
                 is_collision_layer = true;
-                collisionmap.scale = layer.getCellSize();
-                collisionmap.size = {layer.getGridSize().x, layer.getGridSize().y};
-                collisionmap.fix_map_size();
+                lvlCollision.scale = layer.getCellSize();
+                lvlCollision.size = {layer.getGridSize().x, layer.getGridSize().y};
+                lvlCollision.fix_map_size();
             };
+
+            const auto gridsize = layer.getGridSize();
+            for (uint x = 0; x < layer.getGridSize().x; x++) for (uint y=0;y < layer.getGridSize().y; y++) {
+                const auto tile = layer.getIntGridVal(x, y);
+                const auto tileid = tile.value;
+                const auto tileidstr = std::to_string(tileid);
+
+                const auto currentCollisionVal = collision_json.contains(tileidstr) ? std::stoi(collision_json[tileidstr].get<string>()) : tileid;
+                lvlCollision.map[x][y] = static_cast<Game::CollisionMap::CollisionType>(currentCollisionVal);
+            }
 
             if (leveltris.size() <= leveltris_i) leveltris.push_back({});
             auto& tris = leveltris.back();

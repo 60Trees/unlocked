@@ -15,6 +15,8 @@ file(GLOB_RECURSE PROJECT_SOURCES
 )
 
 set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -24,7 +26,9 @@ add_executable(${PROJECT_NAME_VAR}
 
 include(FetchContent)
 
-set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/lib")
+set(FETCHCONTENT_BASE_DIR
+    "${CMAKE_SOURCE_DIR}/lib"
+)
 
 FetchContent_Declare(
     cmrc
@@ -49,36 +53,13 @@ FetchContent_Declare(
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG 1.0.1 # or the version you want
+    GIT_TAG 1.0.1
 )
 FetchContent_Declare(
     webgpu
     GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution
-    GIT_TAG        v0.3.0-gamma
+    GIT_TAG v0.3.0-gamma
 )
-
-if(EMSCRIPTEN)
-    set_target_properties(${PROJECT_NAME_VAR} PROPERTIES SUFFIX ".html")
-
-    target_link_options(${PROJECT_NAME_VAR}
-        PRIVATE
-            "-sUSE_SDL=3"
-            "-sASSERTIONS=1"
-            "-sALLOW_MEMORY_GROWTH"
-            "-sEXIT_RUNTIME=0"
-            --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
-    )
-
-    set(WEBGPU_BACKEND "EMDAWNWEBGPU" CACHE STRING "" FORCE)
-    FetchContent_MakeAvailable(webgpu)
-else()
-    set(WEBGPU_BACKEND "WGPU" CACHE STRING "" FORCE)
-    set(WEBGPU_BUILD_FROM_SOURCE OFF CACHE BOOL "" FORCE)
-
-    FetchContent_MakeAvailable(webgpu)
-endif()
-
-set(CMAKE_REQUIRED_DEFINITIONS "-D_DEFAULT_SOURCE" CACHE STRING "" FORCE)
 FetchContent_Declare(
     SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -87,24 +68,74 @@ FetchContent_Declare(
         -DHAVE_GETRESUID=1
         -DHAVE_GETRESGID=1
 )
-
-# gcem has to be manually imported because it is a special little snowflake
 FetchContent_Declare(
     gcem
     GIT_REPOSITORY https://github.com/kthohr/gcem.git
-    GIT_TAG master # or replace with a specific release tag/commit
+    GIT_TAG master
 )
+
 FetchContent_GetProperties(gcem)
 if(NOT gcem_POPULATED)
     FetchContent_Populate(gcem)
 endif()
 
-#if(NOT EMSCRIPTEN)
+# ---------------------------------------------------------------------------
+# WebGPU
+#
+# Native:
+#     WebGPU-distribution -> wgpu-native
+#
+# Emscripten:
+#     WebGPU-distribution -> emdawnwebgpu
+# ---------------------------------------------------------------------------
+
+if(EMSCRIPTEN)
+    message(STATUS "Building for Emscripten")
+
+    set(WEBGPU_BACKEND
+        "EMDAWNWEBGPU"
+        CACHE STRING "WebGPU backend"
+        FORCE
+    )
+
+    set_target_properties(${PROJECT_NAME_VAR}
+        PROPERTIES
+            SUFFIX ".html"
+    )
+
+    target_link_options(${PROJECT_NAME_VAR}
+        PRIVATE
+            "-sUSE_SDL=3"
+            "-sASSERTIONS=1"
+            "-sALLOW_MEMORY_GROWTH"
+            "-sEXIT_RUNTIME=0"
+            "--shell-file"
+            "${CMAKE_SOURCE_DIR}/web/shell.html"
+    )
+else()
+
+    message(STATUS "Building native")
+
+    set(WEBGPU_BACKEND
+        "WGPU"
+        CACHE STRING "WebGPU backend"
+        FORCE
+    )
+
+    set(WEBGPU_BUILD_FROM_SOURCE
+        OFF
+        CACHE BOOL "Build wgpu-native from source"
+        FORCE
+    )
+endif()
+FetchContent_MakeAvailable(webgpu)
+
+# SDL3
 set(HAVE_GETRESUID 1 CACHE INTERNAL "")
 set(HAVE_GETRESGID 1 CACHE INTERNAL "")
 FetchContent_MakeAvailable(SDL3)
-#endif()
 
+# Other
 FetchContent_MakeAvailable(
     cmrc
     LDtkLoader
@@ -114,43 +145,39 @@ FetchContent_MakeAvailable(
 )
 
 if(EMSCRIPTEN)
-    target_compile_definitions(sdl3webgpu PRIVATE WEBGPU_BACKEND_EMDAWNWEBGPU)
-    target_compile_options(sdl3webgpu PRIVATE "--use-port=emdawnwebgpu")
+    # Tell SDL3WebGPU to use the Emscripten/Dawn WebGPU API.
+    target_compile_definitions(
+        sdl3webgpu
+        PRIVATE
+            WEBGPU_BACKEND_EMDAWNWEBGPU
+    )
 
-    # Upstream sdl3webgpu.c still assigns raw char* to WGPUStringView fields,
-    # which doesn't compile against the emdawnwebgpu port's webgpu.h.
-    # Patch it in place after fetch (idempotent — no-ops on repeat configures).
-    set(SDL3WEBGPU_C "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c")
-    file(READ "${SDL3WEBGPU_C}" SDL3WEBGPU_C_CONTENT)
-    string(REPLACE
-        "fromCanvasHTMLSelector.selector = \"canvas\";"
-        "fromCanvasHTMLSelector.selector = (WGPUStringView){ \"canvas\", WGPU_STRLEN };"
-        SDL3WEBGPU_C_CONTENT "${SDL3WEBGPU_C_CONTENT}")
-    string(REPLACE
-        "surfaceDescriptor.label = NULL;"
-        "surfaceDescriptor.label = (WGPUStringView){ NULL, 0 };"
-        SDL3WEBGPU_C_CONTENT "${SDL3WEBGPU_C_CONTENT}")
-    file(WRITE "${SDL3WEBGPU_C}" "${SDL3WEBGPU_C_CONTENT}")
+    # Emscripten provides the WebGPU implementation through its port.
+    target_compile_options(
+        sdl3webgpu
+        PRIVATE
+            "--use-port=emdawnwebgpu"
+    )
 endif()
 
-# <AI>
-# Get Git remote URL
+# ---------------------------------------------------------------------------
+# Git information
+# ---------------------------------------------------------------------------
+
 execute_process(
     COMMAND git config --get remote.origin.url
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     OUTPUT_VARIABLE GIT_URL
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-# Get commit hash
 execute_process(
     COMMAND git rev-parse HEAD
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     OUTPUT_VARIABLE GIT_COMMIT_HASH
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-# Fallbacks
 if(NOT GIT_URL)
     set(GIT_URL "unknown://url")
 endif()
@@ -158,7 +185,10 @@ endif()
 if(NOT GIT_COMMIT_HASH)
     set(GIT_COMMIT_HASH "unknownhash")
 endif()
-# </AI>
+
+# ---------------------------------------------------------------------------
+# Assets
+# ---------------------------------------------------------------------------
 
 file(GLOB_RECURSE ASSET_FILES
     CONFIGURE_DEPENDS
@@ -166,10 +196,15 @@ file(GLOB_RECURSE ASSET_FILES
     assets/*
 )
 
-cmrc_add_resource_library(game_assets
+cmrc_add_resource_library(
+    game_assets
     ALIAS assets
     ${ASSET_FILES}
 )
+
+# ---------------------------------------------------------------------------
+# Linking
+# ---------------------------------------------------------------------------
 
 target_link_libraries(${PROJECT_NAME_VAR}
     PRIVATE
@@ -185,14 +220,21 @@ if(NOT EMSCRIPTEN)
     target_copy_webgpu_binaries(${PROJECT_NAME_VAR})
 endif()
 
+# ---------------------------------------------------------------------------
+# Include directories
+# ---------------------------------------------------------------------------
 
 target_include_directories(${PROJECT_NAME_VAR}
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/
-        ${gcem_SOURCE_DIR}/include/
-        ${stb_SOURCE_DIR}/
-        ${CMAKE_CURRENT_SOURCE_DIR}/lib_helper/
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/"
+        "${gcem_SOURCE_DIR}/include/"
+        "${stb_SOURCE_DIR}/"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib_helper/"
 )
+
+# ---------------------------------------------------------------------------
+# Project definitions
+# ---------------------------------------------------------------------------
 
 target_compile_definitions(${PROJECT_NAME_VAR}
     PRIVATE

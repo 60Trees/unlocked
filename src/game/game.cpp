@@ -182,6 +182,7 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
+                    if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;
 
@@ -196,7 +197,7 @@ struct GameClass : Application {
             if (auto* controller = dynamic_cast<KeyboardEntityController*>(player.controller.get())) {
                 int size;
                 const bool* data = SDL_GetKeyboardState(&size);
-                controller->keyboard = span<const bool>{data, (size_t)size};
+                controller->keyboard = std::span<const bool>(data, (size_t)size);
             }
 
             if (entities.exists(camera_following_entity))
