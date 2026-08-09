@@ -3,7 +3,7 @@
 #include "base.hpp"
 #include <utils.hpp>
 
-extern "C" Base::BaseClass* GetFpsCounter();
+GETTER_DEFINITION(Base::BaseClass, GetFpsCounter);
 namespace Base {
     struct FpsCounter : BaseClass {
         void init() override;

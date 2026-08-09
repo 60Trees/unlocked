@@ -231,4 +231,4 @@ struct GameClass : Application {
     }
 };
 
-extern "C" BaseClass* GetApplication() { return new GameClass(); }
+GETTER_IMPL(Base::BaseClass, GetApplication, GameClass);

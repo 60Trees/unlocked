@@ -8,5 +8,6 @@ namespace Game {
         std::string name() const override { return "player"; }
         void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer) const override;
         void spawn() override;
+        void tick_position(double deltaTime) override;
     };
 }  // namespace Game

@@ -222,7 +222,7 @@ class GameRenderer : public Base::Renderer {
     static GPUVertex packVertex(const Vertex& v);
 };
 
-extern "C" Base::BaseClass* GetRenderer() { return new GameRenderer(); }
+GETTER_IMPL(Base::BaseClass, GetRenderer, GameRenderer);
 
 // ============================== lifecycle ==============================
 

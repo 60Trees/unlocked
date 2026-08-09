@@ -5,7 +5,7 @@
 #include "renderer.hpp"
 #include "fps_counter.hpp"
 
-extern "C" Base::BaseClass* GetApplication();
+GETTER_DEFINITION(Base::BaseClass, GetApplication);
 namespace Base {
     struct Application : BaseClass {
         protected:

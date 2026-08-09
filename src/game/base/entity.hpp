@@ -78,21 +78,10 @@ namespace Game {
         std::string anim_stage = "null";
 
         virtual void spawn() { data = get_defaults(); }
-        virtual void tick_all(double deltaTime) {
-            tick_position(deltaTime);
-            tick(deltaTime);
-        }
-        virtual void tick(double deltaTime) {}
-        virtual void tick_position(double deltaTime) {
-            const MaterialProps& mat = flight_props;
-            if (controls.left) data.vel.x -= data.speed * mat.speed * deltaTime;
-            if (controls.right) data.vel.x += data.speed * mat.speed * deltaTime;
-            if (controls.up) data.vel.y += data.speed * mat.speed * deltaTime;
-            if (controls.down) data.vel.y -= data.speed * mat.speed * deltaTime;
 
-            data.pos += data.vel * deltaTime;
-            data.vel *= 1.0 - mat.drag * deltaTime;
-        }
+        virtual void tick_all(double deltaTime);
+        virtual void tick(double deltaTime) {}
+        virtual void tick_position(double deltaTime);
         virtual void despawn() {}
 
         virtual PosData get_defaults() const = 0;

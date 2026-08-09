@@ -39,3 +39,15 @@ void Game::Player::render(Base::Renderer& r, Base::Renderer::VertexLayer& layer)
         },
         layer.vertices);
 }
+
+void Game::Player::tick_position(double deltaTime) {
+    const MaterialProps& mat = flight_props;
+    if (controls.left) data.vel.x -= data.speed * mat.speed * deltaTime;
+    if (controls.right) data.vel.x += data.speed * mat.speed * deltaTime;
+    if (controls.up) data.vel.y += data.speed * mat.speed * deltaTime;
+    if (controls.down) data.vel.y -= data.speed * mat.speed * deltaTime;
+
+    data.pos += data.vel * deltaTime;
+    data.vel *= 1.0 - mat.drag * deltaTime;
+}
+

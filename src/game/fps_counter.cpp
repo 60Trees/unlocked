@@ -4,9 +4,7 @@
 #include <chrono>
 #include <cmath>
 
-extern "C" Base::BaseClass* GetFpsCounter() {
-    return new Base::FpsCounter();
-}
+GETTER_IMPL(Base::BaseClass, GetFpsCounter, Base::FpsCounter);
 
 // <AI>
 namespace {

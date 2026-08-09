@@ -13,7 +13,7 @@
 #include "base.hpp"
 #include <utils.hpp>
 
-extern "C" Base::BaseClass* GetRenderer();
+GETTER_DEFINITION(Base::BaseClass, GetRenderer);
 namespace Base {
     struct Renderer : BaseClass {
         virtual ushort addTextureFromBytes(std::string_view name, std::span<const char> bytes) = 0;

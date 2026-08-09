@@ -93,3 +93,16 @@ namespace hidden {
     #define DEBUG_BREAK() ((void)0)
 #endif
 // </AI>
+
+#define GETTER_DEFINITION(base_class, func_name) extern "C" base_class* func_name(bool create = false);
+#define GETTER_IMPL(base_class, func_name, derived_class) \
+    extern "C" base_class* func_name(bool create) {       \
+        if (create) return new derived_class();           \
+        static derived_class* val = nullptr;                     \
+        if (!val) val = new derived_class();              \
+        return val;                                       \
+    }
+
+std::string runtime_datetime();
+void welcome_message();
+
