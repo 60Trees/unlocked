@@ -45,11 +45,15 @@ namespace Game {
             vec2_t size;
             double speed;
 
-            inline double left_edge() const { return pos.x - size.x / 2; }
-            inline double right_edge() const { return pos.x + size.x / 2; }
-            inline double top_edge() const { return pos.y + size.y; }
-            inline double bottom_edge() const { return pos.y; }
-            inline vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
+            _nodisc_i double left_edge() const { return pos.x - size.x / 2; }
+            _nodisc_i double right_edge() const { return pos.x + size.x / 2; }
+            _nodisc_i double top_edge() const { return pos.y + size.y; }
+            _nodisc_i double bottom_edge() const { return pos.y; }
+            _nodisc_i vec2_t top_left() const { return {left_edge(), top_edge()}; }
+            _nodisc_i vec2_t top_right() const { return {right_edge(), top_edge()}; }
+            _nodisc_i vec2_t bottom_left() const { return {left_edge(), bottom_edge()}; }
+            _nodisc_i vec2_t bottom_right() const { return {right_edge(), bottom_edge()}; }
+            _nodisc_i vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
         } data;
 
         struct Controls {

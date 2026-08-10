@@ -37,7 +37,8 @@ struct WorldHandlerImpl : Game::WorldHandler {
         owned_triangles.erase(it);
     }
 
-    void render(const ldtk::Level& level, Renderer& renderer, Renderer::VertexArray& leveltris, glm::vec<2, int> offset) override {
+    void render(
+        const ldtk::Level& level, Base::Renderer::VertexArray& leveltris, Base::Renderer& renderer, glm::vec<2, int> offset) override {
         collisions[&level] = {};
         Game::CollisionMap& lvlCollision = collisions[&level];
         lvlCollision.offset = offset;
@@ -60,17 +61,19 @@ struct WorldHandlerImpl : Game::WorldHandler {
                 lvlCollision.scale = layer.getCellSize();
                 lvlCollision.size = {layer.getGridSize().x, layer.getGridSize().y};
                 lvlCollision.fix_map_size();
+
+                const auto gridsize = layer.getGridSize();
+                for (uint x = 0; x < layer.getGridSize().x; x++)
+                    for (uint y = 0; y < layer.getGridSize().y; y++) {
+                        const auto tile = layer.getIntGridVal(x, y);
+                        const auto tileid = tile.value;
+                        const auto tileidstr = std::to_string(tileid);
+
+                        const auto currentCollisionVal =
+                            collision_json.contains(tileidstr) ? std::stoi(collision_json[tileidstr].get<string>()) : tileid;
+                        lvlCollision.map[x][y] = static_cast<Game::CollisionMap::CollisionType>(currentCollisionVal);
+                    }
             };
-
-            const auto gridsize = layer.getGridSize();
-            for (uint x = 0; x < layer.getGridSize().x; x++) for (uint y=0;y < layer.getGridSize().y; y++) {
-                const auto tile = layer.getIntGridVal(x, y);
-                const auto tileid = tile.value;
-                const auto tileidstr = std::to_string(tileid);
-
-                const auto currentCollisionVal = collision_json.contains(tileidstr) ? std::stoi(collision_json[tileidstr].get<string>()) : tileid;
-                lvlCollision.map[x][y] = static_cast<Game::CollisionMap::CollisionType>(currentCollisionVal);
-            }
 
             if (leveltris.size() <= leveltris_i) leveltris.push_back({});
             auto& tris = leveltris.back();
@@ -106,16 +109,20 @@ struct WorldHandlerImpl : Game::WorldHandler {
                 //     DEBUG_BREAK();
                 // }
 
+                //-> -->>> // :::::::
                 tilepos.x += offset.x;
                 tilepos.y += offset.y;
 
-                auto tilesize = layer.getCellSize();
-                float scaloid = 1.0f;
-                auto texturerect = tile.getTextureRect();
+                const auto tilesize = layer.getCellSize();
+                const glm::vec<2, int> visual_offset = {0, -tilesize};
+
+                const float scaloid = 1.0f;
+                const auto texturerect = tile.getTextureRect();
 
                 Base::Renderer::TexturedRectDescriptor rect{
-                    .pos = {(float)tilepos.x, (float)-tilepos.y * scaloid, ((float)tilepos.x + tilesize) * scaloid,
-                        ((float)-tilepos.y + tilesize) * scaloid},
+                    .pos = {(float)tilepos.x + visual_offset.x, (float)-tilepos.y * scaloid + visual_offset.y,
+                        ((float)tilepos.x + tilesize) * scaloid + visual_offset.x,
+                        -((float)tilepos.y - tilesize) * scaloid + visual_offset.y},
                     .uv = {(ushort)texturerect.x, (ushort)(texturerect.y + texturerect.height), (ushort)(texturerect.x + texturerect.width),
                         (ushort)texturerect.y},
                     .atlas_index = atlas_id,
@@ -131,8 +138,7 @@ struct WorldHandlerImpl : Game::WorldHandler {
         cur_owned_triangles.end_pos = leveltris.size() - 1;
     }
 
-    void uploadAllTilesets(Renderer& r, bool logs = true) override {
-        logs = true;
+    void uploadAllTilesets(Renderer& r, bool logs) override {
         for (auto& tileset : main_world.allTilesets()) {
             try {
                 string _path = "assets/" + tileset.path;
@@ -152,4 +158,4 @@ struct WorldHandlerImpl : Game::WorldHandler {
     }
 };
 
-extern "C" Game::WorldHandler* GetWorldHandler() { return new WorldHandlerImpl(); }
+GETTER_IMPL(Game::WorldHandler, GetWorldHandler, WorldHandlerImpl);

@@ -107,8 +107,8 @@ struct GameClass : Application {
     void update_renderer_layers() {
         renderqueue.clear();
 
-        renderqueue.append(entitytris);
         renderqueue.append(leveltris);
+        renderqueue.append(entitytris);
     }
 
     vector<string> worldnames{};
@@ -131,7 +131,8 @@ struct GameClass : Application {
 
         world_handler->uploadAllTilesets(*renderer);
 
-        world_handler->render(world_handler->getlevel(0, 0), *renderer, *leveltris);
+        world_handler->placed_levels.push_back({world_handler->getlevel(0,0)});
+        world_handler->placed_levels[0].render(*leveltris);
 
         update_renderer_layers();
 

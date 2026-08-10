@@ -10,6 +10,12 @@
 #include "glm/detail/qualifier.hpp"
 
 namespace Game {
+    struct WorldHandler;
+}
+
+GETTER_DEFINITION(Game::WorldHandler, GetWorldHandler);
+
+namespace Game {
     struct CollisionMap {
         enum CollisionType : uint8_t {
             AIR = 0,
@@ -34,15 +40,19 @@ namespace Game {
 
         std::vector<std::vector<CollisionType>> map;
     };
+
+    struct PlacedLevel;
+
     struct WorldHandler {
         virtual ~WorldHandler() = default;
 
         ldtk::Project main_world;
 
         std::map<const ldtk::Level*, CollisionMap> collisions;
+        std::vector<PlacedLevel> placed_levels;
 
-        virtual void render(const ldtk::Level& level, Base::Renderer& renderer, Base::Renderer::VertexArray& leveltris,
-            glm::vec<2, int> offset = {0, 0}) = 0;
+        virtual void render(const ldtk::Level& level, Base::Renderer::VertexArray& leveltris,
+            Base::Renderer& renderer = *dynamic_cast<Base::Renderer*>(GetRenderer(false)), glm::vec<2, int> offset = {0, 0}) = 0;
 
         virtual void uploadAllTilesets(Base::Renderer& r, bool logs = false) = 0;
 
@@ -78,5 +88,14 @@ namespace Game {
             return getlevel(levelname, getworld(worldindex));
         }
     };
+
+    struct PlacedLevel {
+        const ldtk::Level& level;
+        glm::vec<2, int> offset = {0, 0};
+
+        inline void render(
+            Base::Renderer::VertexArray& leveltris, Base::Renderer& renderer = *dynamic_cast<Base::Renderer*>(GetRenderer(false))) {
+            GetWorldHandler(false)->render(level, leveltris, renderer, offset);
+        }
+    };
 }  // namespace Game
-extern "C" Game::WorldHandler* GetWorldHandler();

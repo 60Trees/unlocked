@@ -55,9 +55,20 @@ void handle_loop(std::function<bool()> loop) {
 void handle_loop(std::function<bool()> loop) { while (loop()); }
 #endif
 
+#if defined(__x86_64__)
+#    define OS_ARCH_DETAILS "x86_64"
+#elif defined(__i386__)
+#    define OS_ARCH_DETAILS "i386"
+#elif defined(__aarch64__)
+#    define OS_ARCH_DETAILS "aarch64 (arm)"
+#    eilf defined(__EMSCRIPTEN__)
+#    define OS_ARCH_DETAILS "emscripten (wasm)"
+#else
+#    define OS_ARCH_DETAILS "unknown"
+#endif
 
 void welcome_message() {
-    std::cout << PROJECT_NAME << " v" << PROJECT_VERSION << "\n| " << sizeof(void*) * 8 << "-bit computer"
+    std::cout << PROJECT_NAME << " v" << PROJECT_VERSION << "\n| " << OS_ARCH_DETAILS << " (" << sizeof(void*) * 8 << "bit)"
               << "\n| Uninitialized memory test: " << funny_number_generator() << "\n| Git URL: " << PROJECT_GIT_URL << " with commit #"
               << PROJECT_GIT_COMMIT_HASH << "\n| "
 #ifdef __EMSCRIPTEN__

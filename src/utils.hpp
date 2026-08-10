@@ -5,6 +5,8 @@
 #include <memory>
 #include <map>
 #include <stdexcept>
+#include <functional>
+#include "base/base.hpp"
 template <typename Derived, typename Base>
 std::unique_ptr<Derived> static_unique_ptr_cast(std::unique_ptr<Base>&& ptr) {
     return std::unique_ptr<Derived>(static_cast<Derived*>(ptr.release()));
@@ -81,24 +83,25 @@ namespace hidden {
 
 // <AI>
 #ifndef NDEBUG
-    #if defined(__x86_64__) || defined(__i386__)
-        #define DEBUG_BREAK() asm volatile("int3")
-    #elif defined(__aarch64__)
-        #define DEBUG_BREAK() asm volatile("brk #0")
-    #else
-        #include <csignal>
-        #define DEBUG_BREAK() raise(SIGTRAP)
-    #endif
+#    if defined(__x86_64__) || defined(__i386__)
+#        define DEBUG_BREAK() asm volatile("int3")
+#    elif defined(__aarch64__)
+#        define DEBUG_BREAK() asm volatile("brk #0")
+#    else
+#        include <csignal>
+#        define DEBUG_BREAK() raise(SIGTRAP)
+#    endif
 #else
-    #define DEBUG_BREAK() ((void)0)
+#    define DEBUG_BREAK() ((void)0)
 #endif
 // </AI>
 
 #define GETTER_DEFINITION(base_class, func_name) extern "C" base_class* func_name(bool create = false);
+#define GETTER_DEFINITION_NO_DEFAULT_ARG(base_class, func_name) extern "C" base_class* func_name(bool create);
 #define GETTER_IMPL(base_class, func_name, derived_class) \
     extern "C" base_class* func_name(bool create) {       \
         if (create) return new derived_class();           \
-        static derived_class* val = nullptr;                     \
+        static derived_class* val = nullptr;              \
         if (!val) val = new derived_class();              \
         return val;                                       \
     }
@@ -106,3 +109,9 @@ namespace hidden {
 std::string runtime_datetime();
 void welcome_message();
 
+#define _nodisc [[nodiscard]]
+#define _i inline
+#define _nodisc_i _nodisc _i
+
+GETTER_DEFINITION_NO_DEFAULT_ARG(Base::BaseClass, GetApplication);
+void handle_loop(std::function<bool()> loop);
