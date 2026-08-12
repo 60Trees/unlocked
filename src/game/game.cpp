@@ -1,6 +1,7 @@
 #include <base/app.hpp>
 #include <base/renderer.hpp>
 #include <game/base/entity.hpp>
+#include <game/base/entity_list.hpp>
 
 #include <map>
 #include <memory>
