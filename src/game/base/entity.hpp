@@ -4,82 +4,122 @@
 #include <base/base.hpp>
 #include <functional>
 #include <glm/vec2.hpp>
+#include <memory>
+#include "entity_movements.hpp"
 
 namespace Game {
-    using RenderFunctionParams = std::pair<std::vector<Base::Renderer::Vertex>, Base::Renderer::Material>;
+    /// `0` = activated this frame, `<0` = not activated, `>0` = how long it's been activated for (seconds)
+    typedef float Duration;
+
     struct Entity;
     struct EntityList;
 
+    struct ControlData {
+        /**
+            * @note Dependant on `pressed` being `true` or `false`.
+            *
+            * 0 means prsesed on this frame
+            *
+            * >0 means for how many seconds it has been pressed or
+            * released
+            */
+        Duration time;
+
+        /**
+            * @note Not dependant on `pressed` (unlike `time`)
+            *
+            * This goes up when pressed and down when not pressed
+            * (1.0f per second). It is limited by both
+            * `upper_charge_limit` and `lower_charge_limit`.
+            */
+        float charge;
+        constexpr static float upper_charge_limit = 0.5f;
+        constexpr static float lower_charge_limit = 0.0f;
+
+        bool pressed;
+
+        constexpr inline operator bool() const { return pressed; }
+
+        void update(double deltaTime, bool new_pressed);
+    };
+
+    struct Hitbox {
+        using vec2_t = glm::vec<2, double>;
+        vec2_t size;
+        vec2_t pos;
+        vec2_t vel;
+        double speed;
+
+        struct {
+            ControlData up, down, left, right;
+        } colliding_with;
+
+        _nodisc_i double left_edge() const { return pos.x - size.x / 2; }
+        _nodisc_i double right_edge() const { return pos.x + size.x / 2; }
+        _nodisc_i double top_edge() const { return pos.y + size.y; }
+        _nodisc_i double bottom_edge() const { return pos.y; }
+        _nodisc_i vec2_t top_left() const { return {left_edge(), top_edge()}; }
+        _nodisc_i vec2_t top_right() const { return {right_edge(), top_edge()}; }
+        _nodisc_i vec2_t bottom_left() const { return {left_edge(), bottom_edge()}; }
+        _nodisc_i vec2_t bottom_right() const { return {right_edge(), bottom_edge()}; }
+        _nodisc_i vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
+    };
+
     struct EntityAnim {
-        virtual ~EntityAnim() = default;
-        virtual Base::Renderer::TexturedRectDescriptor::Rect<uint16_t> get_anim_stage() const = 0;
-        virtual std::string get_atlas() const = 0;
-        virtual bool has_custom_draw_command() const { return false; }
-        virtual void custom_render(const Entity* own_entity, Base::Renderer& r, Base::Renderer::VertexLayer& layer) const {
-            unimplemented_code;
-        }
+        typedef Base::Renderer::VertexLayer RenderedOutput;
+
+        /**
+         * Returns a vector of vertexes as well as a material.
+         * The vertexes are positioned so that 0,0 is the bottom middle
+         * of the player, so when rendered it will be shifted by player_pos
+         * units.
+         */
+        std::function<RenderedOutput(uint*, double deltaTime, const Hitbox& hitbox, Base::Renderer& r)> render_lambda = nullptr;
+
+        RenderedOutput get_rendered(
+            double deltaTime, const Hitbox& hitbox, Base::Renderer& r = *dynamic_cast<Base::Renderer*>(GetRenderer(false))) const;
+        RenderedOutput get_rendered(
+            double deltaTime, const Entity& e, Base::Renderer& r = *dynamic_cast<Base::Renderer*>(GetRenderer(false))) const;
 
         _REGISTERABLE_SINGLETON(EntityAnim);
     };
 
     struct EntityController {
         virtual ~EntityController() = default;
-        virtual void update_controls(Entity& own, const EntityList& others) const {}
-    };
-    struct BasicEntityController : EntityController {
-        using Func = std::function<void(Entity&, const EntityList&)>;
-        Func func;
-        BasicEntityController(Func f) : func(f) {}
-        BasicEntityController() : func([](Entity&, const EntityList&) {}) {}
-        BasicEntityController(BasicEntityController&& o) = default;
-        BasicEntityController(const BasicEntityController& o) = default;
-        virtual void update_controls(Entity& own, const EntityList& others) const override { func(own, others); }
+        virtual void update_controls(Entity& own, const EntityList& others, double deltaTime) const {}
     };
 
     struct Entity {
         using vec2_t = glm::vec<2, double>;
-        // using EntityController = std::function<void(Entity& own, const EntityList& others)>;
-        struct PosData {
-            vec2_t pos;
-            vec2_t vel;
-            vec2_t size;
-            double speed;
+        Hitbox data;
 
-            _nodisc_i double left_edge() const { return pos.x - size.x / 2; }
-            _nodisc_i double right_edge() const { return pos.x + size.x / 2; }
-            _nodisc_i double top_edge() const { return pos.y + size.y; }
-            _nodisc_i double bottom_edge() const { return pos.y; }
-            _nodisc_i vec2_t top_left() const { return {left_edge(), top_edge()}; }
-            _nodisc_i vec2_t top_right() const { return {right_edge(), top_edge()}; }
-            _nodisc_i vec2_t bottom_left() const { return {left_edge(), bottom_edge()}; }
-            _nodisc_i vec2_t bottom_right() const { return {right_edge(), bottom_edge()}; }
-            _nodisc_i vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
-        } data;
+
+        std::unique_ptr<EntityMovement> current_movement;
+        std::vector<std::unique_ptr<EntityAbility>> current_abilities;
+
+        /// @detail Does nothing if `movement` doesn't exist
+        inline void set_movement(const std::string& movement) {
+            auto* new_movement = EntityMovement::make_new(movement);
+            if (new_movement) current_movement.reset(new_movement);
+        }
 
         struct Controls {
-            bool up, down, left, right;
+            ControlData up, down, left, right;
+            ControlData boost;
+            ControlData jump;
         } controls;
 
         std::unique_ptr<EntityController> controller = std::make_unique<EntityController>();
 
-        virtual vec2_t get_gravity() { return {0.0, 1.0}; };
+        virtual vec2_t get_gravity();
 
-        // 0 = no drag
         struct MaterialProps {
-            double drag;
+            // vel *= 1 - (drag * deltaTime)
+            vec2_t drag;
             double speed;
         };
 
-        constexpr static MaterialProps air_props = {
-            .drag = 0.2,
-            .speed = 0.8,
-        };
-        constexpr static MaterialProps flight_props = {
-            .drag = 4,
-            .speed = 20,
-        };
-
-        std::string anim_stage = "null";
+        EntityAnim anim{};
 
         virtual void spawn() { data = get_defaults(); }
 
@@ -88,11 +128,10 @@ namespace Game {
         virtual void tick_position(double deltaTime);
         virtual void despawn() {}
 
-        virtual PosData get_defaults() const = 0;
+        virtual Hitbox get_defaults() const = 0;
 
-        virtual void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer) const = 0;
+        virtual void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const = 0;
         virtual std::string name() const = 0;
-        inline const EntityAnim& anim() const { return EntityAnim::get(anim_stage); }
         virtual ~Entity() = default;
 
         bool wants_to_despawn = false;

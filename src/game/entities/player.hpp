@@ -4,9 +4,9 @@
 
 namespace Game {
     struct Player : Entity {
-        Entity::PosData get_defaults() const override;
+        Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
-        void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer) const override;
+        void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const override;
         void spawn() override;
         void tick_position(double deltaTime) override;
     };

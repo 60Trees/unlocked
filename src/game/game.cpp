@@ -28,16 +28,17 @@ struct GameClass : Application {
     EntityList::index_t camera_following_entity = EntityList::null_index;
 
     struct KeyboardControls {
-        SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D;
+        SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_SPACE;
     };
     struct KeyboardEntityController : EntityController {
         KeyboardControls controls;
         span<const bool> keyboard;
-        virtual void update_controls(Entity& own, const EntityList&) const override {
-            own.controls.up = keyboard[controls.up];
-            own.controls.down = keyboard[controls.down];
-            own.controls.left = keyboard[controls.left];
-            own.controls.right = keyboard[controls.right];
+        virtual void update_controls(Entity& own, const EntityList&, double deltaTime) const override {
+            own.controls.up.update(deltaTime, keyboard[controls.up]);
+            own.controls.down.update(deltaTime, keyboard[controls.down]);
+            own.controls.left.update(deltaTime, keyboard[controls.left]);
+            own.controls.right.update(deltaTime, keyboard[controls.right]);
+            own.controls.jump.update(deltaTime, keyboard[controls.jump]);
         }
     };
     vector<EntityList::index_t> players{};
@@ -131,7 +132,7 @@ struct GameClass : Application {
 
         world_handler->uploadAllTilesets(*renderer);
 
-        world_handler->placed_levels.push_back({world_handler->getlevel(0,0)});
+        world_handler->placed_levels.push_back({world_handler->getlevel(0, 0)});
         world_handler->placed_levels[0].render(*leveltris);
 
         update_renderer_layers();
@@ -146,7 +147,7 @@ struct GameClass : Application {
         size_t tris_i = 0;
         for (const auto& [entity_id, entity] : entities) {
             entitytrisindex.add_entity(entity_id);
-            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]));
+            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), fps_counter->deltaTime);
         }
     }
 
@@ -183,7 +184,7 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
-                    if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
+                    // if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;
 
@@ -212,12 +213,12 @@ struct GameClass : Application {
                 entitytrisindex.remove_entity(entity_id);
                 continue;
             }
-            entity->controller->update_controls(*entity, entities);
+            entity->controller->update_controls(*entity, entities, fps_counter->deltaTime);
             entity->tick_all(fps_counter->deltaTime);
             if (entity->wants_to_despawn) should_clean_entities = true;
 
             if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);
-            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]));
+            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), fps_counter->deltaTime);
         }
         if (should_clean_entities) entities.clean_entities();
 

@@ -75,9 +75,10 @@ namespace hidden {
         return registry;                                                               \
     }
 
-#define _REGISTER_FOR(value, name, registerable_classname)           \
-    static ::hidden ::Registerer _concat(__register_for, __COUNT__){ \
-        [] -> void* { return new Game::Player(); }, [](void* (*factory)()) { Game ::Entity ::register_new("player", factory); }};
+#define _REGISTER_FOR(value, name, registerable_classname)             \
+    ;                                                                  \
+    static ::hidden ::Registerer _concat(__register_for, __COUNTER__){ \
+        [] -> void* { return value; }, [](void* (*factory)()) { registerable_classname ::register_new(name, factory); }};
 
 #define unimplemented_code throw std::logic_error("Unimplemented function reached")
 
@@ -93,6 +94,11 @@ namespace hidden {
 #    endif
 #else
 #    define DEBUG_BREAK() ((void)0)
+#endif
+#ifdef NDEBUG
+#    define ASSUME(x) [[assume(x)]]
+#else
+#    define ASSUME(x) assert(x)
 #endif
 // </AI>
 
