@@ -139,6 +139,7 @@ struct WorldHandlerImpl : Game::WorldHandler {
     }
 
     void uploadAllTilesets(Renderer& r, bool logs) override {
+        logs = true;
         for (auto& tileset : main_world.allTilesets()) {
             try {
                 string _path = "assets/" + tileset.path;

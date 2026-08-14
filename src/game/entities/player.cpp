@@ -1,14 +1,13 @@
 #include "player.hpp"
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
+#include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
 
 using namespace Game;
 using namespace Base;
 using namespace std;
-constexpr bool X_AXIS = 0, Y_AXIS = 1;
-constexpr bool LEFT = 0, RIGHT = 1;
 
 _REGISTER_FOR(new Player(), "player", Entity)
 
@@ -36,9 +35,15 @@ inline bool is_doing(const Entity& e) {
 }
 
 namespace PlayerMovements {
+    AnimationType WalkAnimation();
+    AnimationType IdleAnimation();
     struct Walk : EntityMovement {
         virtual float speed_multiplier() { return 1.0f; }
         virtual glm::vec<2, double> drag_multiplier() { return {1.0f, 1.0f}; }
+
+        bool is_walking = false;
+
+        AnimationType animation_type() override { return is_walking ? WalkAnimation() : IdleAnimation(); }
 
         void tick(Entity* _e, double deltaTime) override {
             Entity& e = *_e;
@@ -61,8 +66,13 @@ namespace PlayerMovements {
 
             const auto multiplier = speed_multiplier();
 
-            if (e.controls.left) e.data.vel.x -= e.data.speed * mat.speed * deltaTime * multiplier;
-            if (e.controls.right) e.data.vel.x += e.data.speed * mat.speed * deltaTime * multiplier;
+            is_walking = true;
+            if (e.controls.left)
+                e.data.vel.x -= e.data.speed * mat.speed * deltaTime * multiplier;
+            else if (e.controls.right)
+                e.data.vel.x += e.data.speed * mat.speed * deltaTime * multiplier;
+            else
+                is_walking = false;
 
             // <AI>
             max_walk_speed = e.data.speed * mat.speed * speed_multiplier() / (mat.drag.x * drag_multiplier().x);
@@ -70,7 +80,10 @@ namespace PlayerMovements {
         }
     } _register_movement(Walk);
 
+    AnimationType QuickTurnAnimation();
     struct QuickTurn : Walk {
+        AnimationType animation_type() override { return QuickTurnAnimation(); }
+
         float speed_multiplier() override { return 2.0f; }
 
         Duration time_left = 0.3;
@@ -78,27 +91,24 @@ namespace PlayerMovements {
             Walk::tick(_e, deltaTime);
             // if it goes negative, it is handled by the ability
             time_left -= deltaTime;
+            if (time_left <= 0) _e->set_movement("Walk");
         }
     } _register_movement(QuickTurn);
 }  // namespace PlayerMovements
 
 namespace PlayerAbilities {
     struct Jump : EntityAbility {
+        const Duration time_to_jump = 0.25;
         bool can_trigger(const Entity* e, double) override { return e->controls.jump && e->data.colliding_with.down; }
         void trigger(Entity* e, double) override { e->data.vel.y += 200; }
     } _register_ability(Jump);
 
-    struct QuickTurn : ConditionalEntityAbility {
-        bool is_active(Entity* e, double deltaTime) override {
+    struct QuickTurn : EntityAbility {
+        bool can_trigger(const Entity* e, double deltaTime) override {
             const bool is_walking = dynamic_cast<PlayerMovements::Walk*>(e->current_movement.get());
 
             if (!is_walking) return false;
             if (!e->data.colliding_with.down) return false;
-
-            {
-                auto* movement = dynamic_cast<PlayerMovements::QuickTurn*>(e->current_movement.get());
-                if (movement) return movement->time_left > 0.0;
-            }
 
             const auto& c = e->controls;
 
@@ -108,13 +118,9 @@ namespace PlayerAbilities {
             return false;
         }
 
-        void when_active(Entity* e, double deltaTime) override {
-            const bool is_quickturning = dynamic_cast<PlayerMovements::QuickTurn*>(e->current_movement.get());
-            if (!is_quickturning) e->set_movement("QuickTurn");
-        }
-        void when_deactive(Entity* e, double deltaTime) override {
-            const bool is_quickturning = dynamic_cast<PlayerMovements::QuickTurn*>(e->current_movement.get());
-            if (is_quickturning) e->set_movement("Walk");
+        void trigger(Entity* e, double deltaTime) override {
+            e->set_movement("QuickTurn");
+            e->current_movement->forced_direction = e->controls.right.pressed;
         }
     } _register_ability(QuickTurn);
 }  // namespace PlayerAbilities
@@ -126,7 +132,7 @@ using Material = Renderer::Material;
 
 Hitbox Player::get_defaults() const {
     return {
-        .size = {10, 15},
+        .size = {14, 10},
         .pos = {},
         .vel = {0, 0},
         .speed = 30,
@@ -142,9 +148,3 @@ void Player::spawn() {
     set_movement("Walk");
     for (const auto factory : player_abilities) add_ability(factory());
 }
-
-void Player::render(Renderer& r, Renderer::VertexLayer& layer, double deltaTime) const {
-    auto new_layer = anim.get_rendered(deltaTime, *this);
-    layer = new_layer;
-}
-

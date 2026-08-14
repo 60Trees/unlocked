@@ -2,7 +2,6 @@
 
 #include <base/renderer.hpp>
 #include <base/base.hpp>
-#include <functional>
 #include <glm/vec2.hpp>
 #include <memory>
 #include "entity_movements.hpp"
@@ -65,25 +64,6 @@ namespace Game {
         _nodisc_i vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
     };
 
-    struct EntityAnim {
-        typedef Base::Renderer::VertexLayer RenderedOutput;
-
-        /**
-         * Returns a vector of vertexes as well as a material.
-         * The vertexes are positioned so that 0,0 is the bottom middle
-         * of the player, so when rendered it will be shifted by player_pos
-         * units.
-         */
-        std::function<RenderedOutput(uint*, double deltaTime, const Hitbox& hitbox, Base::Renderer& r)> render_lambda = nullptr;
-
-        RenderedOutput get_rendered(
-            double deltaTime, const Hitbox& hitbox, Base::Renderer& r = *dynamic_cast<Base::Renderer*>(GetRenderer(false))) const;
-        RenderedOutput get_rendered(
-            double deltaTime, const Entity& e, Base::Renderer& r = *dynamic_cast<Base::Renderer*>(GetRenderer(false))) const;
-
-        _REGISTERABLE_SINGLETON(EntityAnim);
-    };
-
     struct EntityController {
         virtual ~EntityController() = default;
         virtual void update_controls(Entity& own, const EntityList& others, double deltaTime) const {}
@@ -119,8 +99,6 @@ namespace Game {
             double speed;
         };
 
-        EntityAnim anim{};
-
         virtual void spawn() { data = get_defaults(); }
 
         virtual void tick_all(double deltaTime);
@@ -130,7 +108,7 @@ namespace Game {
 
         virtual Hitbox get_defaults() const = 0;
 
-        virtual void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const = 0;
+        virtual void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const;
         virtual std::string name() const = 0;
         virtual ~Entity() = default;
 

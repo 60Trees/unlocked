@@ -1,6 +1,8 @@
 #pragma once
 
+#include <optional>
 #include <utils.hpp>
+#include <game/anim.hpp>
 
 namespace Game {
     struct Entity;
@@ -9,6 +11,11 @@ namespace Game {
         virtual ~EntityMovement() = default;
 
         virtual void tick(Entity* e, double deltaTime) = 0;
+
+        virtual AnimationType animation_type() = 0;
+
+        Direction direction;
+        std::optional<Direction> forced_direction = std::nullopt;
 
         _REGISTERABLE(EntityMovement);
     };

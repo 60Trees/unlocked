@@ -1,5 +1,6 @@
 #include <base/app.hpp>
 #include <base/renderer.hpp>
+#include <cmath>
 #include <game/base/entity.hpp>
 #include <game/base/entity_list.hpp>
 
@@ -22,6 +23,8 @@ struct Point {
     int x, y;
 };
 
+extern "C" double dt_multiplier();
+
 using VertexArray = Renderer::VertexArray;
 
 struct GameClass : Application {
@@ -35,11 +38,23 @@ struct GameClass : Application {
         KeyboardControls controls;
         span<const bool> keyboard;
         virtual void update_controls(Entity& own, const EntityList&, double deltaTime) const override {
+            int8_t moving_dir_int = 0;
+            const auto forced_dir = own.current_movement->forced_direction;
+            if (keyboard[controls.left]) moving_dir_int -= 1;
+            if (keyboard[controls.right]) moving_dir_int += 1;
+            _disabled if (forced_dir) {
+                if (forced_dir == LEFT) moving_dir_int = -1;
+                if (forced_dir == RIGHT) moving_dir_int = 1;
+            }
+            Direction moving_dir = moving_dir_int == 0 ? own.current_movement->direction : moving_dir_int > 0;
+            own.current_movement->direction = moving_dir;
+
             own.controls.up.update(deltaTime, keyboard[controls.up]);
             own.controls.down.update(deltaTime, keyboard[controls.down]);
-            own.controls.left.update(deltaTime, keyboard[controls.left]);
-            own.controls.right.update(deltaTime, keyboard[controls.right]);
-            own.controls.jump.update(deltaTime, keyboard[controls.jump]);
+            own.controls.left.update(deltaTime, !moving_dir && moving_dir_int != 0);
+            own.controls.right.update(deltaTime, moving_dir && moving_dir_int != 0);
+            // TOOD: Fix jump animation
+            //own.controls.jump.update(deltaTime, keyboard[controls.jump]);
         }
     };
     vector<EntityList::index_t> players{};
@@ -139,6 +154,10 @@ struct GameClass : Application {
         update_renderer_layers();
 
         renderer->compile_default_shaders();
+
+
+        renderer->addTextureFromBytes("assets/player.png", fs_helper::get_bytes_from_file<char>("assets/player.png"));
+
         // renderer->compile_used_shaders();
 
         players.push_back(entities.spawn_entity("player"));
@@ -148,7 +167,7 @@ struct GameClass : Application {
         size_t tris_i = 0;
         for (const auto& [entity_id, entity] : entities) {
             entitytrisindex.add_entity(entity_id);
-            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), fps_counter->deltaTime);
+            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), 1.0 / 60.0);
         }
     }
 
@@ -174,7 +193,10 @@ struct GameClass : Application {
 
     void loop() override {
         fps_counter->loop();
-        renderer->camera.update_zoom(fps_counter->deltaTime);
+        const double dt = fps_counter->deltaTime * dt_multiplier();
+        ASSUME(dt != NAN);
+        ASSUME(dt > 0);
+        renderer->camera.update_zoom(dt);
         renderer->loop();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -204,7 +226,7 @@ struct GameClass : Application {
             }
 
             if (entities.exists(camera_following_entity))
-                renderer->camera.follow_point(entities[camera_following_entity].data.hitbox_center(), fps_counter->deltaTime);
+                renderer->camera.follow_point(entities[camera_following_entity].data.hitbox_center(), dt);
         }
 
         bool should_clean_entities = false;
@@ -214,12 +236,12 @@ struct GameClass : Application {
                 entitytrisindex.remove_entity(entity_id);
                 continue;
             }
-            entity->controller->update_controls(*entity, entities, fps_counter->deltaTime);
-            entity->tick_all(fps_counter->deltaTime);
+            entity->controller->update_controls(*entity, entities, dt);
+            entity->tick_all(dt);
             if (entity->wants_to_despawn) should_clean_entities = true;
 
             if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);
-            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), fps_counter->deltaTime);
+            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), dt);
         }
         if (should_clean_entities) entities.clean_entities();
 

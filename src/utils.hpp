@@ -1,10 +1,15 @@
 #pragma once
 
+constexpr bool X_AXIS = 0, Y_AXIS = 1;
+constexpr bool LEFT = 0, RIGHT = 1;
+using Direction = bool;
+
 // <AI>
 #include <cstdint>
 #include <memory>
 #include <map>
 #include <stdexcept>
+#include <print>
 #include <functional>
 #include "base/base.hpp"
 template <typename Derived, typename Base>
@@ -93,12 +98,39 @@ namespace hidden {
 #        define DEBUG_BREAK() raise(SIGTRAP)
 #    endif
 #else
-#    define DEBUG_BREAK() ((void)0)
+#    define DEBUG_BREAK()                                                                                                        \
+        do {                                                                                                                     \
+            std::print("Debug break! But *gasp* there is no debugger! Too bad. L\n{}:{}\n", __builtin_LINE(), __builtin_FILE()); \
+        } while (0)
 #endif
+
+#define CASSERT(x)     \
+    do {                   \
+        if (!(x)) {        \
+            DEBUG_BREAK(); \
+        } else {           \
+        }                  \
+    } while (0)
+
 #ifdef NDEBUG
 #    define ASSUME(x) [[assume(x)]]
+#    define DBGASSERT(x)
 #else
-#    define ASSUME(x) assert(x)
+#    define ASSUME(x)          \
+        do {                   \
+            if (!(x)) {        \
+                DEBUG_BREAK(); \
+            } else {           \
+                [[assume(x)]]; \
+            }                  \
+        } while (0)
+#    define DBGASSERT(x)       \
+        do {                   \
+            if (!(x)) {        \
+                DEBUG_BREAK(); \
+            } else {           \
+            }                  \
+        } while (0)
 #endif
 // </AI>
 
