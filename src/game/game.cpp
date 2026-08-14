@@ -54,7 +54,7 @@ struct GameClass : Application {
             own.controls.left.update(deltaTime, !moving_dir && moving_dir_int != 0);
             own.controls.right.update(deltaTime, moving_dir && moving_dir_int != 0);
             // TOOD: Fix jump animation
-            //own.controls.jump.update(deltaTime, keyboard[controls.jump]);
+            // own.controls.jump.update(deltaTime, keyboard[controls.jump]);
         }
     };
     vector<EntityList::index_t> players{};
@@ -84,6 +84,7 @@ struct GameClass : Application {
 
     shared_ptr<VertexArray> leveltris = make_shared<VertexArray>();
     shared_ptr<VertexArray> entitytris = make_shared<VertexArray>();
+    shared_ptr<VertexArray> background = make_shared<VertexArray>();
 
     struct EntityTrisIndex {
         shared_ptr<VertexArray>& entitytris;
@@ -121,9 +122,124 @@ struct GameClass : Application {
 
     Renderer::RenderQueue renderqueue{};
 
+    static constexpr std::string_view kDitherGradientPS = R"(
+    struct Transform { offset: vec2f, scale: vec2f };
+    @group(0) @binding(0) var<uniform> transform: Transform;
+    @group(2) @binding(0) var<uniform> params: array<vec4f, 16>;
+
+    const bayer4x4 = array<f32, 16>(
+        0.0,  8.0,  2.0, 10.0,
+        12.0,  4.0, 14.0,  6.0,
+        3.0, 11.0,  1.0,  9.0,
+        15.0,  7.0, 13.0,  5.0
+    );
+
+    @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
+        let colourA   = params[0];        // top colour
+        let colourB   = params[1];        // bottom colour
+        let pixelSize = max(params[2].x, 1.0);
+
+        let resolution = vec2f(2.0) / transform.scale;
+        let blockPos   = floor(in.pos.xy / pixelSize) * pixelSize;
+        let t          = clamp(blockPos.y / resolution.y, 0.0, 1.0);
+
+        let bx = u32(blockPos.x / pixelSize) % 4u;
+        let by = u32(blockPos.y / pixelSize) % 4u;
+        let threshold = bayer4x4[by * 4u + bx] / 16.0;
+
+        return mix(colourA, colourB, step(threshold, t));
+    }
+    )";
+
+    struct DitherBgParams {
+        float colourA[4];
+        float colourB[4];
+        float pixelSize;
+        float _pad[3];
+    };
+    DitherBgParams ditherBgParams{};  // member of GameClass — must outlive the frame it's uploaded on
+
+    static constexpr uint32_t pack_rgba_from_rrggbb(uint32_t rrggbb) {
+        rrggbb &= 0xFFFFFF;  // ignore/require: only RRGGBB, top byte is never colour data
+        uint8_t r = (rrggbb >> 16) & 0xFF;
+        uint8_t g = (rrggbb >> 8) & 0xFF;
+        uint8_t b = rrggbb & 0xFF;
+        uint8_t a = 0xFF;
+        return uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (uint32_t(a) << 24);
+    }
+
+    void set_dithered_gradient_background(uint32_t top, uint32_t bottom, float pixelSize = 4.0f) {
+        auto unpack = [](uint32_t c, float* out) {
+            out[0] = ((c >> 0) & 0xFF) / 255.0f;
+            out[1] = ((c >> 8) & 0xFF) / 255.0f;
+            out[2] = ((c >> 16) & 0xFF) / 255.0f;
+            out[3] = ((c >> 24) & 0xFF) / 255.0f;
+        };
+        unpack(pack_rgba_from_rrggbb(top), ditherBgParams.colourA);
+        unpack(pack_rgba_from_rrggbb(bottom), ditherBgParams.colourB);
+        ditherBgParams.pixelSize = pixelSize;
+
+        background->clear();
+        background->push_back({});
+        auto& layer = background->back();
+        layer.material.vertex_shader = renderer->builtin_uispace_vshader();
+        layer.material.pixel_shader = kDitherGradientPS;
+        layer.material.screenspace = true;
+        layer.material.blend_mode = Base::Renderer::Opaque;
+        layer.material.params = std::as_bytes(std::span(&ditherBgParams, 1));
+        make_screen_gradient_quad(0, 0, 0, 0, layer.vertices);  // vertex colour is unused by this shader
+    }
+
+    void set_gradient_background(uint32_t top, uint32_t bottom) {
+        background->clear();
+        background->push_back({});
+        auto& layer = background->back();
+        layer.material.vertex_shader = renderer->builtin_uispace_vshader();
+        layer.material.pixel_shader = renderer->builtin_coloured_pshader();
+        layer.material.screenspace = true;
+        layer.material.blend_mode = Base::Renderer::Opaque;
+        const auto top_packed = pack_rgba_from_rrggbb(top);
+        const auto bottom_packed = pack_rgba_from_rrggbb(bottom);
+        make_screen_gradient_quad(top_packed, top_packed, bottom_packed, bottom_packed, layer.vertices);
+    }
+
+    void set_solid_background(uint8_t r, uint8_t g, uint8_t b) {
+        uint32_t packed = uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (0xFFu << 24);
+        background->clear();
+        background->push_back({});
+        auto& layer = background->back();
+        layer.material.vertex_shader = renderer->builtin_uispace_vshader();
+        layer.material.pixel_shader = renderer->builtin_coloured_pshader();
+        layer.material.screenspace = true;
+        layer.material.blend_mode = Base::Renderer::Opaque;
+        make_screen_gradient_quad(packed, packed, packed, packed, layer.vertices);
+    }
+
+    using Vertex = Base::Renderer::Vertex;
+    using ScreenSpace = Base::Renderer::ScreenSpace;
+
+    static void make_screen_gradient_quad(uint32_t tl, uint32_t tr, uint32_t bl, uint32_t br, std::vector<Vertex>& verts) {
+        auto corner = [](ScreenSpace::AnchorPoint ap, uint32_t colour) {
+            Vertex v{};
+            v.pos.screen = ScreenSpace{0, 0, ap};
+            v.shaderdata.rgba_combined = colour;
+            return v;
+        };
+        Vertex a = corner(ScreenSpace::TOP_LEFT, tl);
+        Vertex b = corner(ScreenSpace::BOTTOM_LEFT, bl);
+        Vertex c = corner(ScreenSpace::BOTTOM_RIGHT, br);
+        Vertex d = corner(ScreenSpace::TOP_RIGHT, tr);
+        verts.insert(verts.end(), {a, b, c, a, c, d});
+    }
+
+    static constexpr uint32_t pack_rgba32(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) {
+        return uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (uint32_t(a) << 24);
+    }
+
     void update_renderer_layers() {
         renderqueue.clear();
 
+        renderqueue.append(background);
         renderqueue.append(leveltris);
         renderqueue.append(entitytris);
     }
@@ -146,6 +262,11 @@ struct GameClass : Application {
             print("Loaded world\n");
         }
 
+        {
+            const auto c = world_handler->main_world.getBgColor();
+            set_solid_background(c.r, c.g, c.b);
+        }
+
         world_handler->uploadAllTilesets(*renderer);
 
         world_handler->placed_levels.push_back({world_handler->getlevel(0, 0)});
@@ -154,7 +275,6 @@ struct GameClass : Application {
         update_renderer_layers();
 
         renderer->compile_default_shaders();
-
 
         renderer->addTextureFromBytes("assets/player.png", fs_helper::get_bytes_from_file<char>("assets/player.png"));
 
@@ -207,6 +327,7 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
+                    if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0,100};
                     // if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;

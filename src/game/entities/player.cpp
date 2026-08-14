@@ -43,8 +43,10 @@ namespace PlayerMovements {
         bool is_walking = false;
 
         AnimationFrame anim_frame(const Entity* e) override {
-            constexpr uint stride_length_run = 8;  // pixels
-            constexpr uint stride_length_walk = 4;  // pixels
+            // higher = slower animation
+            constexpr uint stride_length_run = 8;
+            // higher = slower animation
+            constexpr uint stride_length_walk = 6;
 
             const std::array runningframes = {
                 glm::vec<2, int>{0, 16},
@@ -76,7 +78,7 @@ namespace PlayerMovements {
             const bool is_controlling = e->controls.left || e->controls.right;
 
             glm::vec<2, int> frame;
-            if (vel_percentage > 0.8)
+            if (vel_percentage > 0.9)
                 frame = runningframe;
             else
                 frame = is_controlling ? walkingframe : breakingframe;

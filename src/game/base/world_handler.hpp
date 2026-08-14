@@ -19,7 +19,10 @@ namespace Game {
     struct CollisionMap {
         enum CollisionType : uint8_t {
             AIR = 0,
-            SOLID,
+            SOLID = 1,
+            WATER = 2,
+            LADDER = 3,
+            LAVA = 4,
         };
 
         glm::vec<2, int> offset = {0, 0};
