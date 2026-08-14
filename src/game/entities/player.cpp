@@ -1,6 +1,7 @@
 #include "player.hpp"
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
+#include <cmath>
 #include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
@@ -35,15 +36,61 @@ inline bool is_doing(const Entity& e) {
 }
 
 namespace PlayerMovements {
-    AnimationType WalkAnimation();
-    AnimationType IdleAnimation();
     struct Walk : EntityMovement {
         virtual float speed_multiplier() { return 1.0f; }
         virtual glm::vec<2, double> drag_multiplier() { return {1.0f, 1.0f}; }
 
         bool is_walking = false;
 
-        AnimationType animation_type() override { return is_walking ? WalkAnimation() : IdleAnimation(); }
+        AnimationFrame anim_frame(const Entity* e) override {
+            constexpr uint stride_length_run = 8;  // pixels
+            constexpr uint stride_length_walk = 4;  // pixels
+
+            const std::array runningframes = {
+                glm::vec<2, int>{0, 16},
+                glm::vec<2, int>{16, 16},
+                glm::vec<2, int>{32, 16},
+            };
+            const auto runningframe = runningframes[(long)mth::round(e->data.pos.x / stride_length_run * (direction == RIGHT ? 1 : -1)) % runningframes.size()];
+            const std::array walkingframes = {
+                glm::vec<2, int>{48, 16},
+                glm::vec<2, int>{64, 16},
+                glm::vec<2, int>{80, 16},
+            };
+            const auto walkingframe = walkingframes[(long)mth::round(e->data.pos.x / stride_length_walk * (direction == RIGHT ? 1 : -1)) % walkingframes.size()];
+            const glm::vec<2, int> breakingframe = {0, 32};
+            const auto standingframe = glm::vec<2, int>{0, 0};
+
+            const auto absvelx = abs(e->data.vel.x);
+
+            const auto normalize_float = [](const double i) -> double {
+                if (isnan(i)) return 0;
+                if (isinf(i)) return 0;
+                if (i < 0) return 0;
+                return i;
+            };
+            const double vel_percentage = normalize_float(absvelx / max_walk_speed);
+
+            std::print("Vel percentage: {}\n", vel_percentage);
+
+            const bool is_controlling = e->controls.left || e->controls.right;
+
+            glm::vec<2, int> frame;
+            if (vel_percentage > 0.8)
+                frame = runningframe;
+            else
+                frame = is_controlling ? walkingframe : breakingframe;
+            if (absvelx < 4) frame = standingframe;
+
+            AnimationFrame retval;
+            retval.top_left = frame;
+            retval.size = {16, 16};
+            retval.tileset = "assets/player.png";
+            retval.direction = RIGHT;
+            retval.snap_to_pixel_grid = absvelx <= 2;
+
+            return retval;
+        }
 
         void tick(Entity* _e, double deltaTime) override {
             Entity& e = *_e;
@@ -77,12 +124,24 @@ namespace PlayerMovements {
             // <AI>
             max_walk_speed = e.data.speed * mat.speed * speed_multiplier() / (mat.drag.x * drag_multiplier().x);
             // </AI>
+
+            const auto normalize_float = [](const double i) -> double {
+                if (isnan(i)) return 0;
+                if (isinf(i)) return 0;
+                if (i < 0) return 0;
+                return i;
+            };
+            const double vel_percentage = normalize_float(abs(e.data.vel.x) / max_walk_speed);
+            const bool is_controlling = e.controls.left || e.controls.right;
+            if (abs(e.data.vel.x) <= 5.0 && !is_controlling && e.data.colliding_with.down) e.data.vel.x = 0;
         }
     } _register_movement(Walk);
 
-    AnimationType QuickTurnAnimation();
     struct QuickTurn : Walk {
-        AnimationType animation_type() override { return QuickTurnAnimation(); }
+        AnimationFrame anim_frame(const Entity* e) override {
+            if (time_left > 0.15) return {{0, 32}, {16, 16}, "assets/player.png", LEFT};
+            return Walk::anim_frame(e);
+        }
 
         float speed_multiplier() override { return 2.0f; }
 
@@ -119,8 +178,9 @@ namespace PlayerAbilities {
         }
 
         void trigger(Entity* e, double deltaTime) override {
+            const auto dir = e->current_movement->direction;
             e->set_movement("QuickTurn");
-            e->current_movement->forced_direction = e->controls.right.pressed;
+            e->current_movement->forced_direction = dir;
         }
     } _register_ability(QuickTurn);
 }  // namespace PlayerAbilities

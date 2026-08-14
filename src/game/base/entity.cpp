@@ -1,10 +1,6 @@
 #include "entity.hpp"
 #include <cmath>
 #include <game/base/world_handler.hpp>
-#include <optional>
-#include "game/anim.hpp"
-#include "game/anim.hpp"
-#include "utils.hpp"
 
 using namespace std;
 using namespace Base;
@@ -107,14 +103,9 @@ void Game::Entity::tick_position(double deltaTime) {
         return false;
     };
 
-    // ------------------------------------------------------------
-    // X movement
-    // ------------------------------------------------------------
-
     constexpr double vel_snap_distance = 0.1;
 
     bool colliding_left = false, colliding_right = false;
-
     if (abs(data.vel.x) > vel_snap_distance) {
         const double edge_before = (data.vel.x > 0.0) ? data.right_edge() : data.left_edge();
         const double edge_offset = edge_before - data.pos.x;
@@ -139,12 +130,7 @@ void Game::Entity::tick_position(double deltaTime) {
     data.colliding_with.left.update(deltaTime, colliding_left);
     data.colliding_with.right.update(deltaTime, colliding_right);
 
-    // ------------------------------------------------------------
-    // Y movement
-    // ------------------------------------------------------------
-
     bool colliding_up = false, colliding_down = false;
-
     if (abs(data.vel.y) > vel_snap_distance) {
         const double edge_before = (data.vel.y > 0.0) ? data.top_edge() : data.bottom_edge();
         const double edge_offset = edge_before - data.pos.y;
@@ -189,98 +175,3 @@ void Game::ControlData::update(double deltaTime, bool new_pressed) {
     if (charge <= lower_charge_limit) charge = lower_charge_limit;
 }
 
-void Game::Entity::render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const {
-    constexpr bool solitaire_mode = false;
-
-    const auto worldspace = r.builtin_worldspace_vshader();
-    const auto uispace = r.builtin_uispace_vshader();
-    const auto textured = r.builtin_textured_pshader();
-    const auto coloured = r.builtin_coloured_pshader();
-    layer.material.pixel_shader = textured;
-    layer.material.vertex_shader = worldspace;
-    layer.material.blend_mode = Renderer::Alpha;
-    static map<const Entity*, float> anim_frame_index_fmap{};
-    static map<const Entity*, AnimationType> previous_anim_map{};
-
-    const AnimationType anim = current_movement->animation_type();
-
-    bool has_changed = false;
-    if (!previous_anim_map.contains(this))
-        has_changed = true;
-    else if (previous_anim_map[this] != anim)
-        has_changed = true;
-    else if (!anim_frame_index_fmap.contains(this))
-        has_changed = true;
-
-    if (has_changed) {
-        anim_frame_index_fmap[this] = 0.0;
-        previous_anim_map[this] = anim;
-std::print(
-    "Entity {:p}: anim={}, frame={}\n",
-    static_cast<const void*>(this),
-    typeid(current_movement).name(),
-    anim_frame_index_fmap[this]
-);
-        //std::print("MOVEMENT CHANGED Entity {:p}: {}\n", static_cast<const void*>(this), typeid(current_movement).name());
-    }
-
-    float& anim_frame_index_f = anim_frame_index_fmap[this];
-
-    CASSERT(anim.frames.size() != 0);
-    if (anim.flipped_frames) CASSERT(anim.flipped_frames->size() == anim.frames.size());
-
-    if (!solitaire_mode) layer.vertices.clear();
-
-    anim_frame_index_f += 1 * deltaTime;
-    if (!anim.should_stop_on_last_frame)
-        while (anim_frame_index_f >= anim.frames.size()) anim_frame_index_f -= anim.frames.size();
-    else if (anim_frame_index_f > anim.frames.size() - 1)
-        anim_frame_index_f = anim.frames.size() - 1;
-
-    uint anim_frame_index = uint(mth::floor(anim_frame_index_f / anim.seconds_per_frame));
-    if (!anim.should_stop_on_last_frame)
-        anim_frame_index = anim_frame_index % anim.frames.size();
-    else
-        anim_frame_index = mth::min(anim_frame_index, anim.frames.size() - 1);
-
-    // `facing` needs to be added to Entity and kept updated during tick;
-    // this decides whether we need to mirror the base art at all.
-    const bool needs_mirror = this->current_movement->direction != anim.sprite_facing;
-    const bool use_flipped_art = needs_mirror && anim.flipped_frames.has_value();
-
-    const AnimationFrame& anim_frame = use_flipped_art ? (*anim.flipped_frames)[anim_frame_index] : anim.frames[anim_frame_index];
-
-    // mirror via UV swap only when we don't have dedicated flipped art
-    const bool mirror_uv = needs_mirror && !use_flipped_art;
-
-    const glm::vec<2, uint> bottom_middle = anim_frame.bottom_middle.value_or(glm::vec<2, uint>{anim_frame.size.x / 2, 0});
-
-    Renderer::TexturedRectDescriptor rect{};
-
-    // world position: anchor `bottom_middle` (local to the frame) onto data.pos,
-    // matching how Hitbox::pos already means "bottom center" for collision purposes
-    rect.pos.l = (float)(data.pos.x - bottom_middle.x);
-    rect.pos.r = (float)(rect.pos.l + anim_frame.size.x);
-    rect.pos.b = (float)(data.pos.y - (int)bottom_middle.y);
-    rect.pos.t = (float)(rect.pos.b + anim_frame.size.y);
-
-    const uint16_t uv_l = anim_frame.top_left.x;
-    const uint16_t uv_t = anim_frame.top_left.y;
-    const uint16_t uv_r = anim_frame.top_left.x + anim_frame.size.x;
-    const uint16_t uv_b = anim_frame.top_left.y + anim_frame.size.y;
-
-    rect.uv.l = mirror_uv ? uv_r : uv_l;
-    rect.uv.r = mirror_uv ? uv_l : uv_r;
-    rect.uv.t = uv_t;
-    rect.uv.b = uv_b;
-    // rect.uv.l = 0;
-    // rect.uv.t = 0;
-    // rect.uv.r = 16;
-    // rect.uv.b = 16;
-
-    rect.atlas_index = r.getTextureID(anim.tileset);
-    // std::print("Atlas index={}\n", rect.atlas_index);
-    rect.layer = 0;
-
-    Renderer::make_textured_square(rect, layer.vertices);
-}

@@ -12,7 +12,7 @@ namespace Game {
 
         virtual void tick(Entity* e, double deltaTime) = 0;
 
-        virtual AnimationType animation_type() = 0;
+        virtual AnimationFrame anim_frame(const Entity*) = 0;
 
         Direction direction;
         std::optional<Direction> forced_direction = std::nullopt;
