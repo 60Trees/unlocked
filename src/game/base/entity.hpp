@@ -15,22 +15,22 @@ namespace Game {
 
     struct ControlData {
         /**
-            * @note Dependant on `pressed` being `true` or `false`.
-            *
-            * 0 means prsesed on this frame
-            *
-            * >0 means for how many seconds it has been pressed or
-            * released
-            */
+         * @note Dependant on `pressed` being `true` or `false`.
+         *
+         * 0 means prsesed on this frame
+         *
+         * >0 means for how many seconds it has been pressed or
+         * released
+         */
         Duration time;
 
         /**
-            * @note Not dependant on `pressed` (unlike `time`)
-            *
-            * This goes up when pressed and down when not pressed
-            * (1.0f per second). It is limited by both
-            * `upper_charge_limit` and `lower_charge_limit`.
-            */
+         * @note Not dependant on `pressed` (unlike `time`)
+         *
+         * This goes up when pressed and down when not pressed
+         * (1.0f per second). It is limited by both
+         * `upper_charge_limit` and `lower_charge_limit`.
+         */
         float charge;
         constexpr static float upper_charge_limit = 0.5f;
         constexpr static float lower_charge_limit = 0.0f;
@@ -73,14 +73,17 @@ namespace Game {
         using vec2_t = glm::vec<2, double>;
         Hitbox data;
 
-
         std::unique_ptr<EntityMovement> current_movement;
         std::vector<std::unique_ptr<EntityAbility>> current_abilities;
 
         /// @detail Does nothing if `movement` doesn't exist
         inline void set_movement(const std::string& movement) {
+            const auto previous_direction = current_movement ? current_movement->direction : RIGHT;
             auto* new_movement = EntityMovement::make_new(movement);
-            if (new_movement) current_movement.reset(new_movement);
+            if (new_movement) {
+                current_movement.reset(new_movement);
+                current_movement->direction = previous_direction;
+            }
         }
 
         struct Controls {

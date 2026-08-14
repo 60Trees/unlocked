@@ -1,4 +1,5 @@
 #include "player.hpp"
+#include <algorithm>
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
 #include <cmath>
@@ -53,13 +54,15 @@ namespace PlayerMovements {
                 glm::vec<2, int>{16, 16},
                 glm::vec<2, int>{32, 16},
             };
-            const auto runningframe = runningframes[(long)mth::round(e->data.pos.x / stride_length_run * (direction == RIGHT ? 1 : -1)) % runningframes.size()];
+            const auto runningframe =
+                runningframes[(long)mth::round(e->data.pos.x / stride_length_run * (direction == RIGHT ? 1 : -1)) % runningframes.size()];
             const std::array walkingframes = {
                 glm::vec<2, int>{48, 16},
                 glm::vec<2, int>{64, 16},
                 glm::vec<2, int>{80, 16},
             };
-            const auto walkingframe = walkingframes[(long)mth::round(e->data.pos.x / stride_length_walk * (direction == RIGHT ? 1 : -1)) % walkingframes.size()];
+            const auto walkingframe =
+                walkingframes[(long)mth::round(e->data.pos.x / stride_length_walk * (direction == RIGHT ? 1 : -1)) % walkingframes.size()];
             const glm::vec<2, int> breakingframe = {0, 32};
             const auto standingframe = glm::vec<2, int>{0, 0};
 
@@ -127,13 +130,20 @@ namespace PlayerMovements {
             max_walk_speed = e.data.speed * mat.speed * speed_multiplier() / (mat.drag.x * drag_multiplier().x);
             // </AI>
 
+            const auto absvelx = abs(e.data.vel.x);
+
             const auto normalize_float = [](const double i) -> double {
                 if (isnan(i)) return 0;
                 if (isinf(i)) return 0;
                 if (i < 0) return 0;
                 return i;
             };
-            const double vel_percentage = normalize_float(abs(e.data.vel.x) / max_walk_speed);
+            const double vel_percentage = normalize_float(absvelx / max_walk_speed);
+            if (round(absvelx) == round(max_walk_speed)) {
+                if (e.data.vel.x < 0) e.data.vel.x = -max_walk_speed;
+                else e.data.vel.x = max_walk_speed;
+            }
+
             const bool is_controlling = e.controls.left || e.controls.right;
             if (abs(e.data.vel.x) <= 5.0 && !is_controlling && e.data.colliding_with.down) e.data.vel.x = 0;
         }
@@ -141,7 +151,7 @@ namespace PlayerMovements {
 
     struct QuickTurn : Walk {
         AnimationFrame anim_frame(const Entity* e) override {
-            if (time_left > 0.15) return {{0, 32}, {16, 16}, "assets/player.png", LEFT};
+            if (time_left > 0.15) return {{16, 32}, {16, 16}, "assets/player.png", LEFT};
             return Walk::anim_frame(e);
         }
 
