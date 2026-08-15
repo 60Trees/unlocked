@@ -10,7 +10,6 @@
 #include <map>
 #include <string>
 #include <sdl3webgpu.h>
-#include <iostream>
 
 #include <SDL3/SDL.h>
 #include <webgpu/webgpu.h>
@@ -19,6 +18,13 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+#ifdef DEBUG_SCREEN
+#    include <imgui.h>
+#    include <imgui_impl_sdl3.h>
+#    include <imgui_impl_wgpu.h>
+#    include <utils.hpp>
+#endif
 
 // <AI>
 namespace wgpu_util {
@@ -105,17 +111,17 @@ struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
 static constexpr std::string_view kBuiltinVertexShaders[] = {kWorldVS, kScreenVS};
 static constexpr std::string_view kBuiltinPixelShaders[] = {kColouredPS, kTexturedPS};
-static constexpr Base::Renderer::BlendMode kAllBlendModes[] = {Base::Renderer::Opaque, Base::Renderer::Alpha,
-    Base::Renderer::Additive, Base::Renderer::Multiply, Base::Renderer::Screen};
+static constexpr Base::Renderer::BlendMode kAllBlendModes[] = {
+    Base::Renderer::Opaque, Base::Renderer::Alpha, Base::Renderer::Additive, Base::Renderer::Multiply, Base::Renderer::Screen};
 
 static constexpr uint32_t kParamAlign = 256;  // WebGPU's minUniformBufferOffsetAlignment floor
 static constexpr uint32_t kParamMax = 256;    // per-draw params budget; raise if you need bigger structs
 
 // TODO: Fix Emscripten with WGPU (its very broken)
 #ifdef __EMSCRITEN__
-#define spamlog(message) std::cout << message << std::endl
+#    define spamlog(message) std::cout << message << std::endl
 #else
-#define spamlog(message)
+#    define spamlog(message)
 #endif
 
 class GameRenderer : public Base::Renderer {
@@ -267,6 +273,17 @@ void GameRenderer::init() {
     ensureParamsScratch(kParamAlign);
     resizeSceneTargets();
 
+#ifdef DEBUG_SCREEN
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui_ImplSDL3_InitForOther(window);
+    ImGui_ImplWGPU_InitInfo imguiInfo{};
+    imguiInfo.Device = device;
+    imguiInfo.NumFramesInFlight = 3;
+    imguiInfo.RenderTargetFormat = surfaceFormat;
+    ImGui_ImplWGPU_Init(&imguiInfo);
+#endif
+
     // texture_id=0 is a 1x1 white dummy so coloured/untextured materials always have something
     // valid bound at group(1), keeping every pipeline layout identical.
     unsigned char white[4] = {255, 255, 255, 255};
@@ -352,6 +369,12 @@ void GameRenderer::resizeSceneTargets() {
 }
 
 void GameRenderer::quit() {
+#ifdef DEBUG_SCREEN
+    ImGui_ImplWGPU_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+#endif
+
     for (auto& t : textures) {
         if (t.bindGroup) wgpuBindGroupRelease(t.bindGroup);
         if (t.view) wgpuTextureViewRelease(t.view);
@@ -749,6 +772,8 @@ void GameRenderer::ensureParamsScratch(size_t bytesNeeded) {
     paramsScratchBG = wgpuDeviceCreateBindGroup(device, &d);
 }
 
+void render_debug_screen();
+
 void GameRenderer::loop() {
     {
         static int prevW = 0, prevH = 0;
@@ -761,6 +786,15 @@ void GameRenderer::loop() {
             prevH = h;
         }
     }
+
+#ifdef DEBUG_SCREEN
+    ImGui_ImplWGPU_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+    render_debug_screen();
+    ImGui::Render();
+#endif
+
     uint64_t now = SDL_GetTicks();
     double dt = lastTick ? (double)(now - lastTick) / 1000.0 : 0.0;
     lastTick = now;
@@ -872,6 +906,9 @@ void GameRenderer::loop() {
         wgpuRenderPassEncoderSetPipeline(pass, blitPipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, blitBG[src], 0, nullptr);
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+#ifdef DEBUG_SCREEN
+        ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), pass);
+#endif
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }

@@ -12,9 +12,17 @@ void Game::Entity::tick_all(double deltaTime) {
     tick(deltaTime);
 }
 
+constexpr inline void cap(double& x, double max) {
+    if (x > max) x = max;
+    if (x < -max) x = -max;
+}
+
 void Game::Entity::tick_position(double deltaTime) {
     constexpr bool X_AXIS = 0, Y_AXIS = 1;
     constexpr bool LEFT = 0, RIGHT = 1;
+
+    cap(data.vel.x, 1e6);
+    cap(data.vel.y, 1e6);
 
     constexpr double tick_speed_multiplier = 1.0;
     deltaTime *= tick_speed_multiplier;

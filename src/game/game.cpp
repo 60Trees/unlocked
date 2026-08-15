@@ -15,6 +15,10 @@
 #include <utility>
 #include "game/base/world_handler.hpp"
 
+#ifdef DEBUG_SCREEN
+#include <imgui_impl_sdl3.h>
+#endif
+
 using namespace std;
 using namespace Game;
 using namespace Base;
@@ -320,6 +324,7 @@ struct GameClass : Application {
         renderer->loop();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            ImGui_ImplSDL3_ProcessEvent(&event);
             switch (event.type) {
                 case SDL_EVENT_QUIT:
                     this->running = false;
@@ -328,7 +333,7 @@ struct GameClass : Application {
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
                     if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0,100};
-                    // if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
+                    if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;
 

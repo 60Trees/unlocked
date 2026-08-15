@@ -1,8 +1,8 @@
 #include "player.hpp"
-#include <algorithm>
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
 #include <cmath>
+#include <sstream>
 #include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
@@ -38,64 +38,85 @@ inline bool is_doing(const Entity& e) {
 
 namespace PlayerMovements {
     struct Walk : EntityMovement {
+        using v2i = glm::vec<2, int>;
+
         virtual float speed_multiplier() { return 1.0f; }
         virtual glm::vec<2, double> drag_multiplier() { return {1.0f, 1.0f}; }
 
         bool is_walking = false;
 
+        virtual v2i get_running_frame(const Entity* e) {
+            constexpr uint stride_length = 8;
+            constexpr std::array frames = {
+                v2i{0, 16},
+                v2i{16, 16},
+                v2i{32, 16},
+            };
+            return frames[(long)mth::round(e->data.pos.x / stride_length * (direction == RIGHT ? 1 : -1)) % frames.size()];
+        }
+        virtual v2i get_walking_frame(const Entity* e) {
+            constexpr uint stride_length = 6;
+            constexpr std::array frames = {
+                v2i{48, 16},
+                v2i{64, 16},
+                v2i{80, 16},
+            };
+            return frames[(long)mth::round(e->data.pos.x / stride_length * (direction == RIGHT ? 1 : -1)) % frames.size()];
+        }
+
+        // 's' = slow break (not leaned back as far), 'm' = medium break and 'f' = fast break (leaned back extra). default = m
+        virtual v2i get_breaking_frame(const Entity*, char break_level = 'm') {
+            switch (break_level) {
+                case 's':
+                    return {32, 32};
+                case 'f':
+                    return {16, 32};
+                case 'm':
+                    return {0, 32};
+                default:
+                    return {0, 32};
+            }
+        }
+        virtual v2i get_standing_frame(const Entity*) { return {0, 0}; }
+
         AnimationFrame anim_frame(const Entity* e) override {
-            // higher = slower animation
-            constexpr uint stride_length_run = 8;
-            // higher = slower animation
-            constexpr uint stride_length_walk = 6;
+            // horizontal speed
+            const auto hspeed = abs(e->data.vel.x);
 
-            const std::array runningframes = {
-                glm::vec<2, int>{0, 16},
-                glm::vec<2, int>{16, 16},
-                glm::vec<2, int>{32, 16},
-            };
-            const auto runningframe =
-                runningframes[(long)mth::round(e->data.pos.x / stride_length_run * (direction == RIGHT ? 1 : -1)) % runningframes.size()];
-            const std::array walkingframes = {
-                glm::vec<2, int>{48, 16},
-                glm::vec<2, int>{64, 16},
-                glm::vec<2, int>{80, 16},
-            };
-            const auto walkingframe =
-                walkingframes[(long)mth::round(e->data.pos.x / stride_length_walk * (direction == RIGHT ? 1 : -1)) % walkingframes.size()];
-            const glm::vec<2, int> breakingframe = {0, 32};
-            const auto standingframe = glm::vec<2, int>{0, 0};
-
-            const auto absvelx = abs(e->data.vel.x);
-
-            const auto normalize_float = [](const double i) -> double {
+            const auto fix_number = [](const double i) -> double {
                 if (isnan(i)) return 0;
                 if (isinf(i)) return 0;
                 if (i < 0) return 0;
                 return i;
             };
-            const double vel_percentage = normalize_float(absvelx / max_walk_speed);
 
-            std::print("Vel percentage: {}\n", vel_percentage);
+            const double vel_percentage = fix_number(hspeed / max_walk_speed) * 100;
 
             const bool is_controlling = e->controls.left || e->controls.right;
 
-            glm::vec<2, int> frame;
-            if (vel_percentage > 0.9)
-                frame = runningframe;
+            v2i frame;
+            if (vel_percentage > 90 && is_controlling)
+                // 90 percent or more of speed
+                frame = get_running_frame(e);
+            else if (is_controlling)
+                frame = get_walking_frame(e);
+            else if (hspeed > 90)
+                frame = get_breaking_frame(e, 'f');
             else
-                frame = is_controlling ? walkingframe : breakingframe;
-            if (absvelx < 4) frame = standingframe;
+                frame = get_breaking_frame(e, 'm');
+            if (hspeed < 4) frame = get_standing_frame(e);
 
-            AnimationFrame retval;
-            retval.top_left = frame;
-            retval.size = {16, 16};
-            retval.tileset = "assets/player.png";
-            retval.direction = RIGHT;
-            retval.snap_to_pixel_grid = absvelx <= 2;
+            AnimationFrame animframe;
+            animframe.top_left = frame;
+            animframe.size = {16, 16};
+            animframe.tileset = "assets/player.png";
+            animframe.direction = RIGHT;
+            animframe.snap_to_pixel_grid = hspeed <= 2;
 
-            return retval;
+            return animframe;
         }
+
+        virtual bool has_drag(const Entity* e) { return e->data.colliding_with.down || (e->controls.left || e->controls.right); }
 
         void tick(Entity* _e, double deltaTime) override {
             Entity& e = *_e;
@@ -112,7 +133,7 @@ namespace PlayerMovements {
             };
 
             Player::MaterialProps mat = e.controls.left || e.controls.right ? floor_props_moving : floor_props_stationary;
-            e.data.vel *= 1.0 - (mat.drag * drag_multiplier() * deltaTime);
+            if (has_drag(_e)) e.data.vel *= 1.0 - (mat.drag * drag_multiplier() * deltaTime);
 
             if (!(e.controls.left || e.controls.right) && !e.data.colliding_with.down) mat.drag.x = 0;
 
@@ -140,8 +161,10 @@ namespace PlayerMovements {
             };
             const double vel_percentage = normalize_float(absvelx / max_walk_speed);
             if (round(absvelx) == round(max_walk_speed)) {
-                if (e.data.vel.x < 0) e.data.vel.x = -max_walk_speed;
-                else e.data.vel.x = max_walk_speed;
+                if (e.data.vel.x < 0)
+                    e.data.vel.x = -max_walk_speed;
+                else
+                    e.data.vel.x = max_walk_speed;
             }
 
             const bool is_controlling = e.controls.left || e.controls.right;

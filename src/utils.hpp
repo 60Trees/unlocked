@@ -10,6 +10,7 @@ using Direction = bool;
 #include <map>
 #include <stdexcept>
 #include <print>
+#include <strstream>
 #include <functional>
 #include "base/base.hpp"
 template <typename Derived, typename Base>
@@ -104,7 +105,7 @@ namespace hidden {
         } while (0)
 #endif
 
-#define CASSERT(x)     \
+#define CASSERT(x)         \
     do {                   \
         if (!(x)) {        \
             DEBUG_BREAK(); \
@@ -153,3 +154,20 @@ void welcome_message();
 
 GETTER_DEFINITION_NO_DEFAULT_ARG(Base::BaseClass, GetApplication);
 void handle_loop(std::function<bool()> loop);
+
+#ifdef NDEBUG
+#    define debug_screen(entry, string) \
+        do {                            \
+        } while (0)
+#else
+extern "C" void add_debug_stream(const char* entry, size_t entrylen, const char* content, size_t contentlen);
+#    define DEBUG_SCREEN true
+#    define debug_screen(entry, content)                                                                                \
+        do {                                                                                                            \
+            ostringstream _entry;                                                                                       \
+            _entry << entry;                                                                                            \
+            ostringstream _content;                                                                                     \
+            _content << content;                                                                                        \
+            ::add_debug_stream(_entry.str().data(), _entry.str().size(), _content.str().data(), _content.str().size()); \
+        } while (0)
+#endif

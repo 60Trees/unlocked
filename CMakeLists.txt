@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
 
+# <AI> Used heavily, because i
+# 1. hate cmake as it is annoying
+# 2. im not bothered as i need to put my effort
+# into actually making the game and not
+# configuring cmake stuff
+
 set(PROJECT_NAME_VAR "Run")
 message("Configuring ${PROJECT_NAME_VAR}...")
 
@@ -202,6 +208,33 @@ cmrc_add_resource_library(
     ${ASSET_FILES}
 )
 
+# imgui
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.92.8
+)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_wgpu.cpp
+)
+target_include_directories(imgui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(imgui PUBLIC
+    SDL3::SDL3
+    webgpu
+)
+target_compile_definitions(imgui PUBLIC
+    IMGUI_IMPL_WEBGPU_BACKEND_WGPU
+)
+
 # ---------------------------------------------------------------------------
 # Linking
 # ---------------------------------------------------------------------------
@@ -214,6 +247,7 @@ target_link_libraries(${PROJECT_NAME_VAR}
         webgpu
         sdl3webgpu
         glm
+        imgui
 )
 
 if(NOT EMSCRIPTEN)
