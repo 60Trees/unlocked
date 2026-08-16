@@ -2,10 +2,10 @@
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
 #include <cmath>
-#include <sstream>
 #include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
+#include <sstream>
 
 using namespace Game;
 using namespace Base;
@@ -16,10 +16,10 @@ _REGISTER_FOR(new Player(), "player", Entity)
 static std::vector<EntityAbility* (*)()> player_abilities{};
 
 #define _register_movement(class_name) _REGISTER_FOR(new class_name(), #class_name, EntityMovement)
-#define _register_ability(class_name)                                                                          \
-    _REGISTER_FOR(new class_name(), #class_name, EntityAbility)                                                \
-    static hidden::Registerer _concat(__player__hidden_counter_, __COUNTER__){[] -> void* { return nullptr; }, \
-        [](void* (*)()) { player_abilities.push_back([] -> EntityAbility* { return new class_name(); }); }};
+#define _register_ability(class_name)                                          \
+    _REGISTER_FOR(new class_name(), #class_name, EntityAbility)                \
+    static hidden::Registerer _concat(__player__hidden_counter_, __COUNTER__){ \
+        nullptr, [](void* (*)()) { player_abilities.push_back([] -> EntityAbility* { return new class_name(); }); }};
 
 // if we ignore these five lines of spaghetti, this code is actually pretty clean
 
@@ -40,8 +40,8 @@ namespace PlayerMovements {
     struct Walk : EntityMovement {
         using v2i = glm::vec<2, int>;
 
-        virtual float speed_multiplier() { return 1.0f; }
-        virtual glm::vec<2, double> drag_multiplier() { return {1.0f, 1.0f}; }
+        virtual float speed_multiplier(const Entity*) { return 1.0f; }
+        virtual glm::vec<2, double> drag_multiplier(const Entity*) { return {1.0f, 1.0f}; }
 
         bool is_walking = false;
 
@@ -121,7 +121,7 @@ namespace PlayerMovements {
         void tick(Entity* _e, double deltaTime) override {
             Entity& e = *_e;
 
-            e.data.vel += e.get_gravity();
+            e.data.vel += e.get_gravity() * deltaTime;
 
             constexpr static Player::MaterialProps floor_props_moving = {
                 .drag = {6, 0.1},
@@ -131,24 +131,24 @@ namespace PlayerMovements {
                 .drag = {8, 0.1},
                 .speed = 0,
             };
+            const auto spdmultiplier = speed_multiplier(_e);
+            const auto dragmultiplier = drag_multiplier(_e);
 
             Player::MaterialProps mat = e.controls.left || e.controls.right ? floor_props_moving : floor_props_stationary;
-            if (has_drag(_e)) e.data.vel *= 1.0 - (mat.drag * drag_multiplier() * deltaTime);
+            if (has_drag(_e)) e.data.vel *= 1.0 - (mat.drag * dragmultiplier * deltaTime);
 
             if (!(e.controls.left || e.controls.right) && !e.data.colliding_with.down) mat.drag.x = 0;
 
-            const auto multiplier = speed_multiplier();
-
             is_walking = true;
             if (e.controls.left)
-                e.data.vel.x -= e.data.speed * mat.speed * deltaTime * multiplier;
+                e.data.vel.x -= e.data.speed * mat.speed * deltaTime * spdmultiplier;
             else if (e.controls.right)
-                e.data.vel.x += e.data.speed * mat.speed * deltaTime * multiplier;
+                e.data.vel.x += e.data.speed * mat.speed * deltaTime * spdmultiplier;
             else
                 is_walking = false;
 
             // <AI>
-            max_walk_speed = e.data.speed * mat.speed * speed_multiplier() / (mat.drag.x * drag_multiplier().x);
+            max_walk_speed = e.data.speed * mat.speed * spdmultiplier / (mat.drag.x * dragmultiplier.x);
             // </AI>
 
             const auto absvelx = abs(e.data.vel.x);
@@ -169,23 +169,57 @@ namespace PlayerMovements {
 
             const bool is_controlling = e.controls.left || e.controls.right;
             if (abs(e.data.vel.x) <= 5.0 && !is_controlling && e.data.colliding_with.down) e.data.vel.x = 0;
+
+            debug_screen(_e << " vel", "X velocity: " << e.data.vel.x);
+            debug_screen(_e << " max speed", "Max walking speed: " << max_walk_speed);
         }
     } _register_movement(Walk);
 
     struct QuickTurn : Walk {
-        AnimationFrame anim_frame(const Entity* e) override {
-            if (time_left > 0.15) return {{16, 32}, {16, 16}, "assets/player.png", LEFT};
-            return Walk::anim_frame(e);
+        virtual bool is_changing_direction(const Entity* e) {
+            if (e->controls.right && e->data.vel.x < 0) return true;
+            if (e->controls.left && e->data.vel.x > 0) return true;
+            return false;
         }
 
-        float speed_multiplier() override { return 2.0f; }
+        AnimationFrame anim_frame(const Entity* e) override {
+            if (is_changing_direction(e)) return {get_breaking_frame(e, 'f'), {16, 16}, "assets/player.png", LEFT};
+            const auto prev_max_speed = max_walk_speed;
+            max_walk_speed = 100;
+            const auto retval = Walk::anim_frame(e);
+            max_walk_speed = prev_max_speed;
+            return retval;
+        }
+
+        float speed_multiplier(const Entity* e) override { return is_changing_direction(e) ? 0.5 : 2.0f; }
 
         Duration time_left = 0.3;
-        void tick(Entity* _e, double deltaTime) override {
-            Walk::tick(_e, deltaTime);
+        bool has_enacted_boost = false;
+
+        void tick(Entity* e, double deltaTime) override {
+            Walk::tick(e, deltaTime);
+
+            if (!is_changing_direction(e) && !has_enacted_boost) {
+                if (e->data.vel.x < 0)
+                    e->data.vel.x = -max_walk_speed;
+                else
+                    e->data.vel.x = max_walk_speed;
+                has_enacted_boost = true;
+            }
+
+            debug_screen(e << " boost time", "Boost time left: " << time_left);
+            if (is_changing_direction(e))
+                debug_screen(e << " boost dir", "Boost changing direction!");
+            else
+                debug_screen(e << " boost dir", "");
+
             // if it goes negative, it is handled by the ability
-            time_left -= deltaTime;
-            if (time_left <= 0) _e->set_movement("Walk");
+            if (!is_changing_direction(e)) time_left -= deltaTime;
+            if (time_left <= 0) {
+                e->set_movement("Walk");
+                debug_screen(e << " boost time", "");
+                debug_screen(e << " boost dir", "");
+            }
         }
     } _register_movement(QuickTurn);
 }  // namespace PlayerMovements

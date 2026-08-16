@@ -317,7 +317,8 @@ struct GameClass : Application {
 
     void loop() override {
         fps_counter->loop();
-        const double dt = fps_counter->deltaTime * dt_multiplier();
+        static bool slow_motion = false;
+        const double dt = fps_counter->deltaTime * (slow_motion ? dt_multiplier() : 1);
         ASSUME(dt != NAN);
         ASSUME(dt > 0);
         renderer->camera.update_zoom(dt);
@@ -334,6 +335,7 @@ struct GameClass : Application {
                     if (event.key.key == SDLK_ESCAPE) running = false;
                     if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0,100};
                     if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
+                    if (event.key.key == SDLK_F) slow_motion = !slow_motion;
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;
 

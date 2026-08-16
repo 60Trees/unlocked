@@ -5,7 +5,7 @@
 using namespace std;
 using namespace Base;
 
-Game::Entity::vec2_t Game::Entity::get_gravity() { return {0.0, -9}; };
+Game::Entity::vec2_t Game::Entity::get_gravity() { return {0.0, -700}; };
 
 void Game::Entity::tick_all(double deltaTime) {
     tick_position(deltaTime);

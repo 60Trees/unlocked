@@ -10,7 +10,7 @@ using Direction = bool;
 #include <map>
 #include <stdexcept>
 #include <print>
-#include <strstream>
+#include <ostream>
 #include <functional>
 #include "base/base.hpp"
 template <typename Derived, typename Base>
