@@ -16,7 +16,7 @@
 #include "game/base/world_handler.hpp"
 
 #ifdef DEBUG_SCREEN
-#include <imgui_impl_sdl3.h>
+#    include <imgui_impl_sdl3.h>
 #endif
 
 using namespace std;
@@ -43,22 +43,22 @@ struct GameClass : Application {
         span<const bool> keyboard;
         virtual void update_controls(Entity& own, const EntityList&, double deltaTime) const override {
             int8_t moving_dir_int = 0;
-            const auto forced_dir = own.current_movement->forced_direction;
+            const auto forced_dir = own.movement->forced_direction;
             if (keyboard[controls.left]) moving_dir_int -= 1;
             if (keyboard[controls.right]) moving_dir_int += 1;
-            _disabled if (forced_dir) {
+            if (forced_dir) {
                 if (forced_dir == LEFT) moving_dir_int = -1;
                 if (forced_dir == RIGHT) moving_dir_int = 1;
             }
-            Direction moving_dir = moving_dir_int == 0 ? own.current_movement->direction : moving_dir_int > 0;
-            own.current_movement->direction = moving_dir;
+            Direction moving_dir = moving_dir_int == 0 ? own.movement->direction : moving_dir_int > 0;
+            own.movement->direction = moving_dir;
 
             own.controls.up.update(deltaTime, keyboard[controls.up]);
             own.controls.down.update(deltaTime, keyboard[controls.down]);
             own.controls.left.update(deltaTime, !moving_dir && moving_dir_int != 0);
             own.controls.right.update(deltaTime, moving_dir && moving_dir_int != 0);
             // TOOD: Fix jump animation
-            // own.controls.jump.update(deltaTime, keyboard[controls.jump]);
+            own.controls.jump.update(deltaTime, keyboard[controls.jump]);
         }
     };
     vector<EntityList::index_t> players{};
@@ -333,7 +333,7 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
-                    if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0,100};
+                    if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0, 100};
                     if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
                     if (event.key.key == SDLK_F) slow_motion = !slow_motion;
                     inputs.do_inputs(event.key.key, 16.0f);

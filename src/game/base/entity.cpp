@@ -57,7 +57,7 @@ void Game::Entity::tick_position(double deltaTime) {
         // </AI>
     }
 
-    if (current_movement) current_movement->tick(this, deltaTime);
+    if (movement) movement->tick(this, deltaTime);
 
     const auto sweep_axis = [&](bool axis, double edge_before, double edge_after, double range_lo, double range_hi,
                                 double& hit_boundary) -> bool {

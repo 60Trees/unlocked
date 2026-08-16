@@ -11,6 +11,7 @@ using Direction = bool;
 #include <stdexcept>
 #include <print>
 #include <ostream>
+#include <sstream>
 #include <functional>
 #include "base/base.hpp"
 template <typename Derived, typename Base>

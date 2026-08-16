@@ -73,16 +73,16 @@ namespace Game {
         using vec2_t = glm::vec<2, double>;
         Hitbox data;
 
-        std::unique_ptr<EntityMovement> current_movement;
+        std::unique_ptr<EntityMovement> movement;
         std::vector<std::unique_ptr<EntityAbility>> current_abilities;
 
         /// @detail Does nothing if `movement` doesn't exist
-        inline void set_movement(const std::string& movement) {
-            const auto previous_direction = current_movement ? current_movement->direction : RIGHT;
-            auto* new_movement = EntityMovement::make_new(movement);
+        inline void set_movement(const std::string& newmovement) {
+            const auto previous_direction = movement ? movement->direction : RIGHT;
+            auto* new_movement = EntityMovement::make_new(newmovement);
             if (new_movement) {
-                current_movement.reset(new_movement);
-                current_movement->direction = previous_direction;
+                movement.reset(new_movement);
+                movement->direction = previous_direction;
             }
         }
 

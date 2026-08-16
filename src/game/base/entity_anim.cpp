@@ -20,7 +20,7 @@ void Game::Entity::render(Base::Renderer& r, Base::Renderer::VertexLayer& layer,
 
     if (!solitaire_mode) layer.vertices.clear();
 
-    const AnimationFrame anim_frame = current_movement->anim_frame(this);
+    const AnimationFrame anim_frame = movement->anim_frame(this);
 
     const glm::vec<2, uint> bottom_middle = anim_frame.bottom_middle.value_or(glm::vec<2, uint>{anim_frame.size.x / 2, 0});
 
@@ -43,7 +43,7 @@ void Game::Entity::render(Base::Renderer& r, Base::Renderer::VertexLayer& layer,
     const uint16_t uv_r = anim_frame.top_left.x + anim_frame.size.x;
     const uint16_t uv_b = anim_frame.top_left.y + anim_frame.size.y;
 
-    const bool flip_lr = anim_frame.direction != current_movement->direction;
+    const bool flip_lr = anim_frame.direction != movement->direction;
 
     rect.uv.l = flip_lr ? uv_r : uv_l;
     rect.uv.r = flip_lr ? uv_l : uv_r;

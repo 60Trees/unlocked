@@ -5,7 +5,6 @@
 #include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
-#include <sstream>
 
 using namespace Game;
 using namespace Base;
@@ -29,15 +28,23 @@ namespace {
 
 template <typename T>
 inline bool is_doing(const Entity* e) {
-    return dynamic_cast<T*>(e->current_movement.get());
+    return dynamic_cast<T*>(e->movement.get());
 }
 template <typename T>
 inline bool is_doing(const Entity& e) {
-    return dynamic_cast<T*>(e.current_movement.get());
+    return dynamic_cast<T*>(e.movement.get());
 }
 
 namespace PlayerMovements {
     struct Walk : EntityMovement {
+        Duration time_spent_walking = 0.0f;
+
+        virtual bool is_changing_direction(const Entity* e) {
+            if (e->controls.right && e->data.vel.x < 0) return true;
+            if (e->controls.left && e->data.vel.x > 0) return true;
+            return false;
+        }
+
         using v2i = glm::vec<2, int>;
 
         virtual float speed_multiplier(const Entity*) { return 1.0f; }
@@ -121,6 +128,9 @@ namespace PlayerMovements {
         void tick(Entity* _e, double deltaTime) override {
             Entity& e = *_e;
 
+            debug_screen(_e << " time spent walking", "Time spent walking: " << time_spent_walking);
+            time_spent_walking += deltaTime;
+
             e.data.vel += e.get_gravity() * deltaTime;
 
             constexpr static Player::MaterialProps floor_props_moving = {
@@ -176,12 +186,6 @@ namespace PlayerMovements {
     } _register_movement(Walk);
 
     struct QuickTurn : Walk {
-        virtual bool is_changing_direction(const Entity* e) {
-            if (e->controls.right && e->data.vel.x < 0) return true;
-            if (e->controls.left && e->data.vel.x > 0) return true;
-            return false;
-        }
-
         AnimationFrame anim_frame(const Entity* e) override {
             if (is_changing_direction(e)) return {get_breaking_frame(e, 'f'), {16, 16}, "assets/player.png", LEFT};
             const auto prev_max_speed = max_walk_speed;
@@ -191,15 +195,19 @@ namespace PlayerMovements {
             return retval;
         }
 
+        bool is_slow;
+
         float speed_multiplier(const Entity* e) override { return is_changing_direction(e) ? 0.5 : 2.0f; }
 
-        Duration time_left = 0.3;
+        constexpr static Duration default_time_left = 0.3;
+        Duration time_left = default_time_left;
         bool has_enacted_boost = false;
 
         void tick(Entity* e, double deltaTime) override {
             Walk::tick(e, deltaTime);
 
             if (!is_changing_direction(e) && !has_enacted_boost) {
+                forced_direction = std::nullopt;
                 if (e->data.vel.x < 0)
                     e->data.vel.x = -max_walk_speed;
                 else
@@ -213,10 +221,18 @@ namespace PlayerMovements {
             else
                 debug_screen(e << " boost dir", "");
 
-            // if it goes negative, it is handled by the ability
-            if (!is_changing_direction(e)) time_left -= deltaTime;
-            if (time_left <= 0) {
+            if (!is_changing_direction(e))
+                time_left -= deltaTime;
+            else
+                time_spent_walking = 0.0f;
+
+            if (time_left <= 0 || !e->data.colliding_with.down || (is_slow && !is_changing_direction(e))) {
                 e->set_movement("Walk");
+                auto* walk = dynamic_cast<Walk*>(e->movement.get());
+                if (!is_slow)
+                    walk->time_spent_walking = default_time_left;
+                else
+                    walk->time_spent_walking = 0;
                 debug_screen(e << " boost time", "");
                 debug_screen(e << " boost dir", "");
             }
@@ -233,23 +249,43 @@ namespace PlayerAbilities {
 
     struct QuickTurn : EntityAbility {
         bool can_trigger(const Entity* e, double deltaTime) override {
-            const bool is_walking = dynamic_cast<PlayerMovements::Walk*>(e->current_movement.get());
+            auto* curmovement = e->movement.get();
+            PlayerMovements::Walk* const walking =
+                typeid(*curmovement) != typeid(PlayerMovements::Walk) ? nullptr : dynamic_cast<PlayerMovements::Walk*>(curmovement);
 
-            if (!is_walking) return false;
+            if (!walking) return false;
             if (!e->data.colliding_with.down) return false;
 
             const auto& c = e->controls;
 
-            if (c.right && !c.left && e->data.vel.x < -max_walk_speed * 0.75 && c.left.charge > 0.4) return true;
-            if (c.left && !c.right && e->data.vel.x > max_walk_speed * 0.75 && c.right.charge > 0.4) return true;
+            if (!walking->is_changing_direction(e)) return false;
+
+            if (c.right && !c.left) return true;
+            if (c.left && !c.right) return true;
 
             return false;
         }
 
         void trigger(Entity* e, double deltaTime) override {
-            const auto dir = e->current_movement->direction;
+            auto* walking = dynamic_cast<PlayerMovements::Walk*>(e->movement.get());
+            const auto dir = walking->direction;
+
+            const auto is_slow = [&] {
+                if (walking->time_spent_walking < 0.5) return true;
+                if (dir == RIGHT) return e->controls.right.charge > 0.4;
+                return e->controls.left.charge > 0.4;
+            }();
+
+            if (is_slow)
+                debug_screen(e << "slow", "Slow (time=" << walking->time_spent_walking << ")");
+            else
+                debug_screen(e << "slow", "Not slow");
+
             e->set_movement("QuickTurn");
-            e->current_movement->forced_direction = dir;
+
+            auto* turning = dynamic_cast<PlayerMovements::QuickTurn*>(e->movement.get());
+            turning->is_slow = is_slow;
+            turning->forced_direction = dir;
         }
     } _register_ability(QuickTurn);
 }  // namespace PlayerAbilities
