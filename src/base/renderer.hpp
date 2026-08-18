@@ -99,6 +99,10 @@ namespace Base {
 
         struct Camera {
             float x = 0, y = 0;
+
+            // TODO: Add screen shaking
+            float screenshake = 0.0;
+
             void follow_point(glm::vec<2, double> point, double dt) {
                 // x += (point.x - x) / 2 * dt * camera_speed;
                 // y += (point.y - y) / 2 * dt * camera_speed;

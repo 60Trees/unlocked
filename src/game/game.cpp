@@ -57,7 +57,6 @@ struct GameClass : Application {
             own.controls.down.update(deltaTime, keyboard[controls.down]);
             own.controls.left.update(deltaTime, !moving_dir && moving_dir_int != 0);
             own.controls.right.update(deltaTime, moving_dir && moving_dir_int != 0);
-            // TOOD: Fix jump animation
             own.controls.jump.update(deltaTime, keyboard[controls.jump]);
         }
     };
@@ -323,6 +322,8 @@ struct GameClass : Application {
         ASSUME(dt > 0);
         renderer->camera.update_zoom(dt);
         renderer->loop();
+        renderer->camera.screenshake -= dt;
+        if (renderer->camera.screenshake < 0) renderer->camera.screenshake = 0;
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
@@ -334,7 +335,7 @@ struct GameClass : Application {
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
                     if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0, 100};
-                    if (event.key.key == SDLK_SPACE) entities[players[0]].data.vel *= 10;
+                    if (event.key.key == SDLK_X) entities[players[0]].data.vel *= 10;
                     if (event.key.key == SDLK_F) slow_motion = !slow_motion;
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;

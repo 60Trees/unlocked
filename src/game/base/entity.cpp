@@ -30,19 +30,19 @@ void Game::Entity::tick_position(double deltaTime) {
     WorldHandler& handler = *GetWorldHandler(false);
 
     {
-        vector<EntityAbility*> triggered{};
+        vector<shared_ptr<EntityAbility>> triggered{};
         for (auto& ability : current_abilities) {
-            if (ability->can_trigger(this, deltaTime)) triggered.push_back(ability.get());
+            if (ability->can_trigger(this, deltaTime)) triggered.push_back(ability);
         }
 
         // <AI>
-        std::vector<EntityAbility*> final{};
+        vector<shared_ptr<EntityAbility>> final{};
 
-        for (auto* ability : triggered) {
+        for (auto ability : triggered) {
             bool overridden = false;
 
-            for (auto* other : triggered) {
-                if (ability != other && other->does_override(ability)) {
+            for (auto other : triggered) {
+                if (ability != other && other->does_override(ability.get())) {
                     overridden = true;
                     break;
                 }
@@ -51,13 +51,16 @@ void Game::Entity::tick_position(double deltaTime) {
             if (!overridden) final.push_back(ability);
         }
 
-        for (auto* ability : final) {
+        for (auto ability : final) {
             ability->trigger(this, deltaTime);
         }
         // </AI>
     }
 
-    if (movement) movement->tick(this, deltaTime);
+    if (movement) {
+        auto keep_alive = movement;
+        movement->tick(this, deltaTime);
+    }
 
     const auto sweep_axis = [&](bool axis, double edge_before, double edge_after, double range_lo, double range_hi,
                                 double& hit_boundary) -> bool {
@@ -182,4 +185,3 @@ void Game::ControlData::update(double deltaTime, bool new_pressed) {
     if (charge >= upper_charge_limit) charge = upper_charge_limit;
     if (charge <= lower_charge_limit) charge = lower_charge_limit;
 }
-

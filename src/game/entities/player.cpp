@@ -37,7 +37,10 @@ inline bool is_doing(const Entity& e) {
 
 namespace PlayerMovements {
     struct Walk : EntityMovement {
+        virtual bool can_be_considered_walking(const Entity*) { return true; }
+
         Duration time_spent_walking = 0.0f;
+        double anim_offset = 0.0;
 
         virtual bool is_changing_direction(const Entity* e) {
             if (e->controls.right && e->data.vel.x < 0) return true;
@@ -59,7 +62,7 @@ namespace PlayerMovements {
                 v2i{16, 16},
                 v2i{32, 16},
             };
-            return frames[(long)mth::round(e->data.pos.x / stride_length * (direction == RIGHT ? 1 : -1)) % frames.size()];
+            return frames[(long)mth::round((e->data.pos.x - anim_offset) / stride_length * (direction == RIGHT ? 1 : -1)) % frames.size()];
         }
         virtual v2i get_walking_frame(const Entity* e) {
             constexpr uint stride_length = 6;
@@ -70,7 +73,6 @@ namespace PlayerMovements {
             };
             return frames[(long)mth::round(e->data.pos.x / stride_length * (direction == RIGHT ? 1 : -1)) % frames.size()];
         }
-
         // 's' = slow break (not leaned back as far), 'm' = medium break and 'f' = fast break (leaned back extra). default = m
         virtual v2i get_breaking_frame(const Entity*, char break_level = 'm') {
             switch (break_level) {
@@ -102,16 +104,23 @@ namespace PlayerMovements {
             const bool is_controlling = e->controls.left || e->controls.right;
 
             v2i frame;
-            if (vel_percentage > 90 && is_controlling)
-                // 90 percent or more of speed
+            if (vel_percentage > 90 && is_controlling) {
                 frame = get_running_frame(e);
-            else if (is_controlling)
+            } else if (is_controlling) {
                 frame = get_walking_frame(e);
-            else if (hspeed > 90)
+                anim_offset = e->data.pos.x;
+            } else if (hspeed > 90) {
                 frame = get_breaking_frame(e, 'f');
-            else
+                anim_offset = e->data.pos.x;
+            } else if (hspeed > 4) {
                 frame = get_breaking_frame(e, 'm');
-            if (hspeed < 4) frame = get_standing_frame(e);
+                anim_offset = e->data.pos.x;
+            } else {
+                anim_offset = e->data.pos.x;
+                frame = get_standing_frame(e);
+            }
+
+            debug_screen(e << "anim_offset", "Anim offset: " << anim_offset << "\nX offset: " << e->data.pos.x);
 
             AnimationFrame animframe;
             animframe.top_left = frame;
@@ -125,14 +134,7 @@ namespace PlayerMovements {
 
         virtual bool has_drag(const Entity* e) { return e->data.colliding_with.down || (e->controls.left || e->controls.right); }
 
-        void tick(Entity* _e, double deltaTime) override {
-            Entity& e = *_e;
-
-            debug_screen(_e << " time spent walking", "Time spent walking: " << time_spent_walking);
-            time_spent_walking += deltaTime;
-
-            e.data.vel += e.get_gravity() * deltaTime;
-
+        virtual Player::MaterialProps get_material_props(const Entity* e) {
             constexpr static Player::MaterialProps floor_props_moving = {
                 .drag = {6, 0.1},
                 .speed = 20,
@@ -141,10 +143,35 @@ namespace PlayerMovements {
                 .drag = {8, 0.1},
                 .speed = 0,
             };
+            return e->controls.left || e->controls.right ? floor_props_moving : floor_props_stationary;
+        }
+
+        void tick(Entity* _e, double deltaTime) override {
+            Entity& e = *_e;
+
+            if (deltaTime < 0) return;
+
+            const auto normalize_float = [](const double i) -> double {
+                if (isnan(i)) return 0;
+                if (isinf(i)) return 0;
+                if (i < 0) return 0;
+                return i;
+            };
+
+            debug_screen("tsw", "Time spent walking: " << time_spent_walking);
+
+            time_spent_walking += deltaTime;
+            if (time_spent_walking < 0) time_spent_walking = 0;
+            if (isnan(time_spent_walking)) time_spent_walking = 0;
+            if (isinf(time_spent_walking)) time_spent_walking = 0;
+
+            e.data.vel += e.get_gravity() * deltaTime;
+
             const auto spdmultiplier = speed_multiplier(_e);
             const auto dragmultiplier = drag_multiplier(_e);
 
-            Player::MaterialProps mat = e.controls.left || e.controls.right ? floor_props_moving : floor_props_stationary;
+            auto mat = get_material_props(_e);
+
             if (has_drag(_e)) e.data.vel *= 1.0 - (mat.drag * dragmultiplier * deltaTime);
 
             if (!(e.controls.left || e.controls.right) && !e.data.colliding_with.down) mat.drag.x = 0;
@@ -158,17 +185,12 @@ namespace PlayerMovements {
                 is_walking = false;
 
             // <AI>
-            max_walk_speed = e.data.speed * mat.speed * spdmultiplier / (mat.drag.x * dragmultiplier.x);
+            const auto new_max_walk_speed = e.data.speed * mat.speed * spdmultiplier / (mat.drag.x * dragmultiplier.x);
             // </AI>
+            if (normalize_float(new_max_walk_speed) != 0) max_walk_speed = new_max_walk_speed;
 
             const auto absvelx = abs(e.data.vel.x);
 
-            const auto normalize_float = [](const double i) -> double {
-                if (isnan(i)) return 0;
-                if (isinf(i)) return 0;
-                if (i < 0) return 0;
-                return i;
-            };
             const double vel_percentage = normalize_float(absvelx / max_walk_speed);
             if (round(absvelx) == round(max_walk_speed)) {
                 if (e.data.vel.x < 0)
@@ -186,12 +208,16 @@ namespace PlayerMovements {
     } _register_movement(Walk);
 
     struct QuickTurn : Walk {
+        bool can_be_considered_walking(const Entity* e) override { return !is_changing_direction(e); }
+
         AnimationFrame anim_frame(const Entity* e) override {
-            if (is_changing_direction(e)) return {get_breaking_frame(e, 'f'), {16, 16}, "assets/player.png", LEFT};
-            const auto prev_max_speed = max_walk_speed;
-            max_walk_speed = 100;
+            if (is_changing_direction(e)) {
+                anim_offset = e->data.pos.x;
+                return {get_breaking_frame(e, 'f'), {16, 16}, "assets/player.png", LEFT};
+            }
+            max_walk_speed *= 1 / speed_multiplier(e);
             const auto retval = Walk::anim_frame(e);
-            max_walk_speed = prev_max_speed;
+            max_walk_speed /= 1 / speed_multiplier(e);
             return retval;
         }
 
@@ -215,43 +241,144 @@ namespace PlayerMovements {
                 has_enacted_boost = true;
             }
 
-            debug_screen(e << " boost time", "Boost time left: " << time_left);
-            if (is_changing_direction(e))
-                debug_screen(e << " boost dir", "Boost changing direction!");
-            else
-                debug_screen(e << " boost dir", "");
-
             if (!is_changing_direction(e))
                 time_left -= deltaTime;
             else
                 time_spent_walking = 0.0f;
 
             if (time_left <= 0 || !e->data.colliding_with.down || (is_slow && !is_changing_direction(e))) {
-                e->set_movement("Walk");
-                auto* walk = dynamic_cast<Walk*>(e->movement.get());
-                if (!is_slow)
+                e->set_movement<Walk>();
+                auto walk = e->get_movement<Walk>();
+                walk->anim_offset = anim_offset;
+
+                if (!is_slow) {
                     walk->time_spent_walking = default_time_left;
-                else
+                } else {
                     walk->time_spent_walking = 0;
-                debug_screen(e << " boost time", "");
-                debug_screen(e << " boost dir", "");
+                }
             }
         }
     } _register_movement(QuickTurn);
+
+    struct Jumping : Walk {
+        bool can_be_considered_walking(const Entity*) override { return false; }
+
+        virtual Player::MaterialProps get_material_props(const Entity* e) override {
+            constexpr static Player::MaterialProps air_props_opposing = {
+                .drag = {1, 0.1},
+                .speed = 8,
+            };
+            constexpr static Player::MaterialProps air_props_normal = {
+                .drag = {0, 0.1},
+                .speed = 0,
+            };
+            bool is_normal = false;
+            if ((e->data.vel.x > 0) == direction) is_normal = true;
+            if (abs(e->data.vel.x) < 100) is_normal = false;
+            if (is_normal)
+                debug_screen("on", "");
+            else
+                debug_screen("on", "Opposing");
+            return is_normal ? air_props_normal : air_props_opposing;
+        }
+
+        constexpr static Duration max_jump_time = 0.07;
+        bool just_jumped = true;
+
+        void tick(Entity* e, double deltaTime) override {
+            if (!just_jumped && e->data.colliding_with.down) {
+                e->set_movement<Walk>();
+            }
+
+            const bool is_jumping = jumptime < max_jump_time && e->controls.jump;
+
+            if (just_jumped && is_jumping) e->data.vel.y += 100;
+            just_jumped = false;
+
+            if (is_jumping) {
+                // <AI> Fix to stop lag spikes causing the player to jump too high
+                const double remaining = max_jump_time - jumptime;
+                const double dt_boost = std::min(deltaTime, remaining);
+                e->data.vel.y += 2000 * dt_boost;
+                jumptime += deltaTime;
+                // </AI>
+            } else if (!e->controls.jump)
+                jumptime = max_jump_time;
+
+            debug_screen("hai", "Jumptime: " << jumptime << "\ndt: " << deltaTime);
+            debug_screen("aaa", "Y vel: " << e->data.vel.y);
+
+            Walk::tick(e, deltaTime);
+        }
+
+        Duration jumptime = 0.0;
+
+        AnimationFrame anim_frame(const Entity* e) override {
+            // horizontal speed
+            const auto hspeed = abs(e->data.vel.x);
+
+            v2i frame = {32, 48};
+
+            constexpr static std::array jumping{v2i{32, 64}, v2i{32, 48}, v2i{16, 48}};
+            constexpr static std::array falling{v2i{0, 48}, v2i{0, 64}, v2i{16, 64}};
+
+            const auto yvel = e->data.vel.y;
+
+            AnimationFrame animframe;
+            // tilted high
+            if (yvel >= 100) animframe.top_left = jumping[0];
+            // tilted medium
+            else if (yvel > 30)
+                animframe.top_left = jumping[1];
+            // straight
+            else if (yvel > -10)
+                animframe.top_left = jumping[2];
+            // tilted a little down
+            else if (yvel > -100)
+                animframe.top_left = falling[0];
+            // tilted a lot down
+            else if (yvel > -170)
+                animframe.top_left = falling[1];
+            // practically diving
+            else
+                animframe.top_left = falling[2];
+            animframe.size = {16, 16};
+            animframe.tileset = "assets/player.png";
+            animframe.direction = true ? (e->data.vel.x > 0) == (direction) : direction;
+            animframe.snap_to_pixel_grid = false;
+
+            return animframe;
+        }
+    } _register_movement(Jumping);
 }  // namespace PlayerMovements
 
 namespace PlayerAbilities {
     struct Jump : EntityAbility {
-        const Duration time_to_jump = 0.25;
-        bool can_trigger(const Entity* e, double) override { return e->controls.jump && e->data.colliding_with.down; }
-        void trigger(Entity* e, double) override { e->data.vel.y += 200; }
+        bool can_trigger(const Entity* e, double) override {
+            // if already jumping then ignore
+            if (e->movement_based_off<PlayerMovements::Jumping>()) return false;
+            if (!e->movement_based_off<PlayerMovements::Walk>()) return false;
+            if (!e->get_movement<PlayerMovements::Walk>()->can_be_considered_walking(e)) return false;
+
+            if (e->controls.jump.time == 0 && e->controls.jump && e->data.colliding_with.down) {
+                return true;
+            }
+            if (!e->data.colliding_with.down) {
+                return true;
+            }
+            return false;
+        }
+        void trigger(Entity* e, double) override {
+            e->set_movement<PlayerMovements::Jumping>();
+            bool can_jump = e->data.colliding_with.down;
+            e->get_movement<PlayerMovements::Jumping>()->jumptime = can_jump ? 0.0f : PlayerMovements::Jumping::max_jump_time;
+        }
     } _register_ability(Jump);
 
     struct QuickTurn : EntityAbility {
         bool can_trigger(const Entity* e, double deltaTime) override {
-            auto* curmovement = e->movement.get();
-            PlayerMovements::Walk* const walking =
-                typeid(*curmovement) != typeid(PlayerMovements::Walk) ? nullptr : dynamic_cast<PlayerMovements::Walk*>(curmovement);
+            if (!e->movement_is_exactly<PlayerMovements::Walk>()) return false;
+            PlayerMovements::Walk* const walking = e->get_movement<PlayerMovements::Walk>();
 
             if (!walking) return false;
             if (!e->data.colliding_with.down) return false;
@@ -267,7 +394,7 @@ namespace PlayerAbilities {
         }
 
         void trigger(Entity* e, double deltaTime) override {
-            auto* walking = dynamic_cast<PlayerMovements::Walk*>(e->movement.get());
+            auto* walking = e->get_movement<PlayerMovements::Walk>();
             const auto dir = walking->direction;
 
             const auto is_slow = [&] {
@@ -276,12 +403,14 @@ namespace PlayerAbilities {
                 return e->controls.left.charge > 0.4;
             }();
 
+            e->set_movement<PlayerMovements::QuickTurn>();
+
             if (is_slow)
                 debug_screen(e << "slow", "Slow (time=" << walking->time_spent_walking << ")");
             else
                 debug_screen(e << "slow", "Not slow");
 
-            e->set_movement("QuickTurn");
+            e->set_movement<PlayerMovements::QuickTurn>();
 
             auto* turning = dynamic_cast<PlayerMovements::QuickTurn*>(e->movement.get());
             turning->is_slow = is_slow;
@@ -310,6 +439,6 @@ void Player::spawn() {
         current_abilities.push_back(unique_ptr<EntityAbility>(dynamic_cast<EntityAbility*>(ability)));
     };
 
-    set_movement("Walk");
+    set_movement<PlayerMovements::Walk>();
     for (const auto factory : player_abilities) add_ability(factory());
 }

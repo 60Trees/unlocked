@@ -73,17 +73,37 @@ namespace Game {
         using vec2_t = glm::vec<2, double>;
         Hitbox data;
 
-        std::unique_ptr<EntityMovement> movement;
-        std::vector<std::unique_ptr<EntityAbility>> current_abilities;
+        std::shared_ptr<EntityMovement> movement;
+        std::vector<std::shared_ptr<EntityAbility>> current_abilities;
 
-        /// @detail Does nothing if `movement` doesn't exist
-        inline void set_movement(const std::string& newmovement) {
+        /// @detail Does nothing if `T` cant convert to EntityMovement
+        template <typename T>
+        inline void set_movement(std::function<T*()> create = []() { return new T(); }) {
+            std::shared_ptr<EntityMovement> new_ptr = std::shared_ptr<EntityMovement>{dynamic_cast<EntityMovement*>(create())};
+            if (!new_ptr) return;
+
             const auto previous_direction = movement ? movement->direction : RIGHT;
-            auto* new_movement = EntityMovement::make_new(newmovement);
-            if (new_movement) {
-                movement.reset(new_movement);
-                movement->direction = previous_direction;
-            }
+            movement = new_ptr;
+            movement->direction = previous_direction;
+        }
+
+        template <typename T>
+        inline T* get_movement() const {
+            if (!movement) return nullptr;
+            return dynamic_cast<T*>(movement.get());
+        }
+
+        template <typename T>
+        inline bool movement_is_exactly() const {
+            if (!movement) return false;
+            auto mptr = movement.get();
+            return typeid(*mptr) == typeid(T);
+        }
+        template <typename T>
+        inline bool movement_based_off() const {
+            if (!movement) return false;
+            auto mptr = movement.get();
+            return dynamic_cast<T*>(mptr);
         }
 
         struct Controls {
