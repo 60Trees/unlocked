@@ -68,7 +68,7 @@ void Game::Entity::tick_position(double deltaTime) {
         const bool is_x = axis == X_AXIS;
 
         for (const auto& level : handler.placed_levels) {
-            const auto& cm = handler.collisions[&level.level];
+            const auto& cm = handler.all_level_tilemaps[&level.level];
 
             const auto to_local = [&](double point, bool target_axis) {
                 if (target_axis == X_AXIS)
@@ -78,7 +78,7 @@ void Game::Entity::tick_position(double deltaTime) {
             };
             const auto tile_solid = [&](int ix, int iy) -> bool {
                 if (ix < 0 || iy < 0 || ix >= cm.size.x || iy >= cm.size.y) return false;
-                return cm.map[ix][iy] == CollisionMap::CollisionType::SOLID;
+                return cm.tilemap[ix][iy] == TileMap::CollisionType::SOLID;
             };
 
             const double local_before = to_local(edge_before, axis);

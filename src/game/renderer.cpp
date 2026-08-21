@@ -9,12 +9,17 @@
 #include <unordered_map>
 #include <map>
 #include <string>
+#include <iostream>
 #include <sdl3webgpu.h>
 
 #include <SDL3/SDL.h>
 #include <webgpu/webgpu.h>
 #include <cassert>
 #include <cstdio>
+
+#ifdef __EMSCRIPTEN__
+#    include <emscripten.h>
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -118,11 +123,7 @@ static constexpr uint32_t kParamAlign = 256;  // WebGPU's minUniformBufferOffset
 static constexpr uint32_t kParamMax = 256;    // per-draw params budget; raise if you need bigger structs
 
 // TODO: Fix Emscripten with WGPU (its very broken)
-#ifdef __EMSCRITEN__
-#    define spamlog(message) std::cout << message << std::endl
-#else
-#    define spamlog(message)
-#endif
+#define spamlog(message) std::cout << message << std::endl
 
 class GameRenderer : public Base::Renderer {
     public:
@@ -418,24 +419,37 @@ void GameRenderer::quit() {
 
 WGPUAdapter GameRenderer::requestAdapterSync(WGPURequestAdapterOptions const& options) {
     WGPUAdapter retval = nullptr;
+    bool requestEnded = false;
     WGPURequestAdapterCallbackInfo cb{.mode = WGPUCallbackMode_AllowSpontaneous,
         .callback =
-            [](WGPURequestAdapterStatus s, WGPUAdapterImpl* a, WGPUStringView, void* ud, void*) {
-                if (s == WGPURequestAdapterStatus_Success) *(WGPUAdapter*)ud = WGPUAdapter(a);
+            [](WGPURequestAdapterStatus s, WGPUAdapterImpl* a, WGPUStringView, void* ud1, void* ud2) {
+                if (s == WGPURequestAdapterStatus_Success) *(WGPUAdapter*)ud1 = WGPUAdapter(a);
+                *(bool*)ud2 = true;
             },
-        .userdata1 = &retval};
+        .userdata1 = &retval,
+        .userdata2 = &requestEnded};
     wgpuInstanceRequestAdapter(instance, &options, cb);
+
+#ifdef __EMSCRIPTEN__
+    while (!requestEnded) emscripten_sleep(10);
+#endif
     return retval;
 }
 WGPUDevice GameRenderer::requestDeviceSync(WGPUDeviceDescriptor const& d) {
     WGPUDevice retval = nullptr;
+    bool requestEnded = false;
     WGPURequestDeviceCallbackInfo cb{.mode = WGPUCallbackMode_AllowSpontaneous,
         .callback =
-            [](WGPURequestDeviceStatus s, WGPUDeviceImpl* a, WGPUStringView, void* ud, void*) {
-                if (s == WGPURequestDeviceStatus_Success) *(WGPUDevice*)ud = WGPUDevice(a);
+            [](WGPURequestDeviceStatus s, WGPUDeviceImpl* a, WGPUStringView, void* ud1, void* ud2) {
+                if (s == WGPURequestDeviceStatus_Success) *(WGPUDevice*)ud1 = WGPUDevice(a);
+                *(bool*)ud2 = true;
             },
-        .userdata1 = &retval};
+        .userdata1 = &retval,
+        .userdata2 = &requestEnded};
     wgpuAdapterRequestDevice(adapter, &d, cb);
+#ifdef __EMSCRIPTEN__
+    while (!requestEnded) emscripten_sleep(10);
+#endif
     return retval;
 }
 
@@ -856,8 +870,11 @@ void GameRenderer::loop() {
 
     // --- main scene pass: renderqueue(), in order, into sceneTex[0] ---
     {
-        WGPURenderPassColorAttachment att{
-            .view = sceneView[0], .loadOp = WGPULoadOp_Clear, .storeOp = WGPUStoreOp_Store, .clearValue = {0.1, 0.1, 0.1, 1.0}};
+        WGPURenderPassColorAttachment att{.view = sceneView[0],
+            .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
+            .loadOp = WGPULoadOp_Clear,
+            .storeOp = WGPUStoreOp_Store,
+            .clearValue = {0.1, 0.1, 0.1, 1.0}};
         WGPURenderPassDescriptor pd{.colorAttachmentCount = 1, .colorAttachments = &att};
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pd);
         if (vertexScratch) wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexScratch, 0, gpuVerts.size() * sizeof(GPUVertex));
@@ -886,8 +903,11 @@ void GameRenderer::loop() {
         if (!fx.enabled) continue;
         PostPipeline& pp = postPipelines.at(PostKey{fx.pixel_shader.data()});
         int dst = 1 - src;
-        WGPURenderPassColorAttachment att{
-            .view = sceneView[dst], .loadOp = WGPULoadOp_Clear, .storeOp = WGPUStoreOp_Store, .clearValue = {0, 0, 0, 1}};
+        WGPURenderPassColorAttachment att{.view = sceneView[dst],
+            .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
+            .loadOp = WGPULoadOp_Clear,
+            .storeOp = WGPUStoreOp_Store,
+            .clearValue = {0, 0, 0, 1}};
         WGPURenderPassDescriptor pd{.colorAttachmentCount = 1, .colorAttachments = &att};
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pd);
         wgpuRenderPassEncoderSetPipeline(pass, pp.pipeline);
@@ -899,8 +919,11 @@ void GameRenderer::loop() {
         src = dst;
     }
     {
-        WGPURenderPassColorAttachment att{
-            .view = backbuffer, .loadOp = WGPULoadOp_Clear, .storeOp = WGPUStoreOp_Store, .clearValue = {0, 0, 0, 1}};
+        WGPURenderPassColorAttachment att{.view = backbuffer,
+            .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
+            .loadOp = WGPULoadOp_Clear,
+            .storeOp = WGPUStoreOp_Store,
+            .clearValue = {0, 0, 0, 1}};
         WGPURenderPassDescriptor pd{.colorAttachmentCount = 1, .colorAttachments = &att};
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pd);
         wgpuRenderPassEncoderSetPipeline(pass, blitPipeline);
@@ -917,7 +940,9 @@ void GameRenderer::loop() {
     wgpuCommandEncoderRelease(encoder);
     wgpuQueueSubmit(queue, 1, &cmd);
     wgpuCommandBufferRelease(cmd);
+#ifndef __EMSCRIPTEN__
     wgpuSurfacePresent(surface);
+#endif
 
     wgpuTextureViewRelease(backbuffer);
     wgpuTextureRelease(st.texture);

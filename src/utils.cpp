@@ -6,6 +6,7 @@
 
 #include <webgpu/webgpu.hpp>
 #include "SDL3/SDL_version.h"
+#include "SDL3/SDL_video.h"
 
 #include <cmrc/cmrc.hpp>
 CMRC_DECLARE(game_assets);
@@ -93,5 +94,15 @@ void welcome_message() {
               << " (unknown STL)"
 #endif
               << "\n| Compiled on " << __DATE__ << " at " << __TIME__ << "\n| Run on " << runtime_datetime()
-              << "\n| WGPU version: " << wgpuGetVersion() << "\n| SDL version: " << SDL_GetVersion() << std::endl;
+
+#ifndef __EMSCRIPTEN__
+              << "\n| WGPU version: " << wgpuGetVersion()
+#else
+// TODO: (Brief) Somehow get the wgpu version on emscripten
+        // (the wgpuGetVersion function doesnt work)
+<< "\n| WGPU version unknown (using emscripten)"
+#endif
+              << "\n| SDL version: " << SDL_GetVersion()
+        << "\n  | Video driver: " << SDL_GetCurrentVideoDriver()
+        << std::endl;
 }

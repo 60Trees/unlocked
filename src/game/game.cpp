@@ -261,7 +261,7 @@ struct GameClass : Application {
 
         {
             const span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
-            world_handler->main_world.loadFromMemory(file.data(), file.size());
+            world_handler->loadFromMemory(file);
             print("Loaded world\n");
         }
 
@@ -273,7 +273,7 @@ struct GameClass : Application {
         world_handler->uploadAllTilesets(*renderer);
 
         world_handler->placed_levels.push_back({world_handler->getlevel(0, 0)});
-        world_handler->placed_levels[0].render(*leveltris);
+        world_handler->renderDirtyLevels(*leveltris);
 
         update_renderer_layers();
 
@@ -325,8 +325,16 @@ struct GameClass : Application {
         renderer->camera.screenshake -= dt;
         if (renderer->camera.screenshake < 0) renderer->camera.screenshake = 0;
         SDL_Event event;
+        auto& level0 = world_handler->placed_levels[0].level;
+        auto& tm = world_handler->all_level_tilemaps[&level0];
+
+        const auto playerpos = entities[players[0]].data.hitbox_center();
+        const int ix = (int)std::floor((playerpos.x - tm.offset.x) / tm.scale);
+        const int iy = (int)std::floor(-(playerpos.y + tm.offset.y - 1) / tm.scale);
         while (SDL_PollEvent(&event)) {
+#ifdef DEBUG_SCREEN
             ImGui_ImplSDL3_ProcessEvent(&event);
+#endif
             switch (event.type) {
                 case SDL_EVENT_QUIT:
                     this->running = false;
@@ -337,6 +345,11 @@ struct GameClass : Application {
                     if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0, 100};
                     if (event.key.key == SDLK_X) entities[players[0]].data.vel *= 10;
                     if (event.key.key == SDLK_F) slow_motion = !slow_motion;
+                    if (event.key.key == SDLK_B) {
+                        world_handler->setTile(level0, {(uint)ix, (uint)iy}, 1);
+                        world_handler->renderDirtyLevels(*leveltris);
+                        break;
+                    }
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;
 
@@ -345,6 +358,20 @@ struct GameClass : Application {
                     break;
             }
         }
+
+        {
+            auto& level0 = world_handler->placed_levels[0].level;
+            auto& tm = world_handler->all_level_tilemaps[&level0];
+
+            const auto playerpos = entities[players[0]].data.hitbox_center();
+            const int ix = (int)std::floor((playerpos.x - tm.offset.x) / tm.scale);
+            const int iy = (int)std::floor(-(playerpos.y + tm.offset.y - 1) / tm.scale);
+            debug_screen("tile_under_player",
+                "Tile under player: " << ix << ", " << iy << "\ncurrent value: "
+                                      << (ix >= 0 && iy >= 0 && (uint)ix < tm.size.x && (uint)iy < tm.size.y ? tm.tilemap[ix][iy] : -123));
+        }
+
+        world_handler->renderDirtyLevels(*leveltris);
 
         for (const auto i : players) {
             auto& player = entities[i];

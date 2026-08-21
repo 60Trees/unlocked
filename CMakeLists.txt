@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-# <AI> Used heavily, because i
-# 1. hate cmake as it is annoying
-# 2. im not bothered as i need to put my effort
-# into actually making the game and not
-# configuring cmake stuff
+# <AI> cmake is annoying + tedious
 
 set(PROJECT_NAME_VAR "Run")
 message("Configuring ${PROJECT_NAME_VAR}...")
@@ -36,6 +32,39 @@ set(FETCHCONTENT_BASE_DIR
     "${CMAKE_SOURCE_DIR}/lib"
 )
 
+#FetchContent_Declare(
+#    yyjson
+#    GIT_REPOSITORY https://github.com/ibireme/yyjson.git
+#    GIT_TAG        0.12.0
+#)
+#
+#FetchContent_MakeAvailable(yyjson)
+#FetchContent_Declare(
+#    ldtkimport
+#    GIT_REPOSITORY https://github.com/AnomalousUnderdog/ldtkimport.git
+#    GIT_TAG        development
+#)
+#
+#FetchContent_GetProperties(ldtkimport)
+#if(NOT ldtkimport_POPULATED)
+#    FetchContent_Populate(ldtkimport)
+#endif()
+#
+#add_library(ldtkimport STATIC
+#    ${ldtkimport_SOURCE_DIR}/source/LdtkDefFile.cpp
+#    ${ldtkimport_SOURCE_DIR}/source/Rule.cpp
+#    # add the rest of the .cpp files here
+#)
+#
+#target_include_directories(ldtkimport
+#    PUBLIC
+#        ${ldtkimport_SOURCE_DIR}/include
+#)
+
+#target_link_libraries(ldtkimport
+#    PUBLIC
+#        yyjson
+#)
 FetchContent_Declare(
     cmrc
     GIT_REPOSITORY https://github.com/vector-of-bool/cmrc.git
@@ -115,6 +144,7 @@ if(EMSCRIPTEN)
             "-sASSERTIONS=1"
             "-sALLOW_MEMORY_GROWTH"
             "-sEXIT_RUNTIME=0"
+            "-sASYNCIFY=1"
             "--shell-file"
             "${CMAKE_SOURCE_DIR}/web/shell.html"
     )
@@ -231,9 +261,11 @@ target_link_libraries(imgui PUBLIC
     SDL3::SDL3
     webgpu
 )
-target_compile_definitions(imgui PUBLIC
-    IMGUI_IMPL_WEBGPU_BACKEND_WGPU
-)
+if(NOT EMSCRIPTEN)
+    target_compile_definitions(imgui PUBLIC
+        IMGUI_IMPL_WEBGPU_BACKEND_WGPU
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Linking
@@ -248,6 +280,7 @@ target_link_libraries(${PROJECT_NAME_VAR}
         sdl3webgpu
         glm
         imgui
+        #ldtkimport
 )
 
 if(NOT EMSCRIPTEN)
