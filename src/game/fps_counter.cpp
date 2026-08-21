@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <base/fps_counter.hpp>
+#include <utils.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -26,6 +27,11 @@ void Base::FpsCounter::init() {
 }
 
 void Base::FpsCounter::loop() {
+    static float high = 0;
+    static float high_time_ago = 0;
+    static float low = 0;
+    static float low_time_ago = 0;
+
     auto now = clock_type::now();
 
     deltaTime = std::chrono::duration<double>(now - lastFrame).count();
@@ -40,6 +46,22 @@ void Base::FpsCounter::loop() {
         frameCount = 0;
         lastFpsUpdate = now;
     }
+
+    const float fps = 1000 / deltaTime;
+    if (fps > high || high_time_ago > 3) {
+        high = fps;
+        high_time_ago = 0;
+    } else high_time_ago += deltaTime;
+
+    if (fps < low || low_time_ago > 3) {
+        low = fps;
+        low_time_ago = 0;
+    } else low_time_ago += deltaTime;
+
+#define colourize(fps_in) (fps_in < 60 ? "\\red" : "\\green") << fps_in << "\\normal"
+#define sf(in) (in < 60 ? in : round(in))
+
+    debug_screen("FPS", "FPS: " << colourize(sf(fps)) << "\nHigh: " << colourize(sf(high)) << "\nLow: " << colourize(sf(low)));
 }
 
 void Base::FpsCounter::quit() {}

@@ -39,6 +39,7 @@ struct WorldHandlerImpl : Game::WorldHandler {
     void loadFromMemory(span<const unsigned char> bytes) override {
         main_world.loadFromMemory(bytes.data(), bytes.size());
 
+
 #if use_ldtkimport
         // ldtkimport can load straight from the in-memory json text, no temp file needed.
         ldtkimport_file.loadFromText(reinterpret_cast<const char*>(bytes.data()), bytes.size(), false, "world_handler_collision_rules");

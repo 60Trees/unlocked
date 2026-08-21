@@ -16,6 +16,7 @@
 #include <webgpu/webgpu.h>
 #include <cassert>
 #include <cstdio>
+#include "SDL3/SDL_properties.h"
 
 #ifdef __EMSCRIPTEN__
 #    include <emscripten.h>

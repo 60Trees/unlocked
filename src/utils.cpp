@@ -41,19 +41,43 @@ std::string runtime_datetime() {
 }
 // </AI>
 //
+
 #ifdef __EMSCRIPTEN__
-#    include <emscripten.h>
-void handle_loop(std::function<bool()> loop) {
-    static std::function<bool()> _loop = [] { return false; };
-    _loop = loop;
+#include <emscripten.h>
+
+void handle_loop(
+    std::function<bool()> loop,
+    std::function<void()> quit
+) {
+    static std::function<bool()> _loop;
+    static std::function<void()> _quit;
+
+    _loop = std::move(loop);
+    _quit = std::move(quit);
+
     emscripten_set_main_loop(
         [] {
-            if (!_loop()) emscripten_cancel_main_loop();
+            if (!_loop()) {
+                std::print("\n[GAMELOOP] Quitting...\n");
+
+                _quit();
+
+                emscripten_cancel_main_loop();
+            }
         },
-        0, true);
+        0,
+        true
+    );
 }
 #else
-void handle_loop(std::function<bool()> loop) { while (loop()); }
+void handle_loop(
+    std::function<bool()> loop,
+    std::function<void()> quit
+) {
+    while (loop()) {}
+    std::print("\n[GAMELOOP] Quitting...\n");
+    quit();
+}
 #endif
 
 #if defined(__x86_64__)

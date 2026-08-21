@@ -6,6 +6,9 @@
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
 
+#undef debug_screen
+#define debug_screen(key, msg) do {} while (0)
+
 using namespace Game;
 using namespace Base;
 using namespace std;

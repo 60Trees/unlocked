@@ -180,6 +180,15 @@ FetchContent_MakeAvailable(
     glm
 )
 
+if(EXISTS "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c"
+   AND EXISTS "${CMAKE_SOURCE_DIR}/lib_helper/sdl3webgpu.c")
+
+    file(COPY_FILE
+        "${CMAKE_SOURCE_DIR}/lib_helper/sdl3webgpu.c"
+        "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c"
+    )
+endif()
+
 if(EMSCRIPTEN)
     # Tell SDL3WebGPU to use the Emscripten/Dawn WebGPU API.
     target_compile_definitions(

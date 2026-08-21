@@ -165,10 +165,13 @@ extern "C" void add_debug_stream(const char* entry, size_t entrylen, const char*
 #    define DEBUG_SCREEN true
 #    define debug_screen(entry, content)                                                                                \
         do {                                                                                                            \
-            ostringstream _entry;                                                                                       \
+            ::std::ostringstream _entry;                                                                                       \
             _entry << entry;                                                                                            \
-            ostringstream _content;                                                                                     \
+            ::std::ostringstream _content;                                                                                     \
             _content << content;                                                                                        \
             ::add_debug_stream(_entry.str().data(), _entry.str().size(), _content.str().data(), _content.str().size()); \
         } while (0)
 #endif
+
+void handle_loop(std::function<bool ()> loop,  std::function<void()> quit);
+
