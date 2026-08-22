@@ -78,7 +78,7 @@ void Game::Entity::tick_position(double deltaTime) {
             };
             const auto tile_solid = [&](int ix, int iy) -> bool {
                 if (ix < 0 || iy < 0 || ix >= cm.size.x || iy >= cm.size.y) return false;
-                return cm.tilemap[ix][iy] == TileMap::CollisionType::SOLID;
+                return level.tile_groups.at((uint)cm.tilemap[ix][iy]) == "Solid";
             };
 
             const double local_before = to_local(edge_before, axis);

@@ -211,7 +211,7 @@ namespace PlayerMovements {
     } _register_movement(Walk);
 
     struct QuickTurn : Walk {
-        bool can_be_considered_walking(const Entity* e) override { return !is_changing_direction(e); }
+        bool can_be_considered_walking(const Entity* e) override { return true; }
 
         AnimationFrame anim_frame(const Entity* e) override {
             if (is_changing_direction(e)) {

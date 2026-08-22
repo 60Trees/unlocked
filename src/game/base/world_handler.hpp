@@ -96,9 +96,14 @@ namespace Game {
             return getlevel(levelname, getworld(worldindex));
         }
     };
+    struct PlacedLevelData {
+        virtual ~PlacedLevelData() = default;
+    };
     struct PlacedLevel {
         const ldtk::Level& level;
         glm::vec<2, int> offset = {0, 0};
+        std::shared_ptr<PlacedLevelData> usrdata;
+        std::map<uint, std::string> tile_groups;
         inline void render(
             Base::Renderer::VertexArray& leveltris, Base::Renderer& renderer = *dynamic_cast<Base::Renderer*>(GetRenderer(false))) {
             GetWorldHandler(false)->render(level, leveltris, renderer, offset);

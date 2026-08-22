@@ -252,6 +252,10 @@ struct GameClass : Application {
 
     unique_ptr<Game::WorldHandler> world_handler{GetWorldHandler()};
 
+    struct LevelData : PlacedLevelData {
+        vector<glm::vec<2, double>> player_starts;
+    };
+
     void init() override {
         print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
 
@@ -272,8 +276,10 @@ struct GameClass : Application {
 
         world_handler->uploadAllTilesets(*renderer);
 
-        world_handler->placed_levels.push_back({world_handler->getlevel(0, 0)});
+        world_handler->placed_levels.push_back(PlacedLevel{world_handler->getlevel(0, 0), {0, 0}, make_shared<LevelData>(), {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {4, "Solid"}}});
         world_handler->renderDirtyLevels(*leveltris);
+
+        auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
 
         update_renderer_layers();
 
@@ -284,6 +290,18 @@ struct GameClass : Application {
         // renderer->compile_used_shaders();
 
         players.push_back(entities.spawn_entity("player"));
+        for (const auto& layer : world_handler->placed_levels[0].level.allLayers()) {
+            for (const auto& entity : layer.allEntities()) {
+                if (entity.getName() == "PlayerStart") {
+                    const auto pos = entity.getPosition();
+                    level_data.player_starts.push_back({pos.x, -pos.y});
+                }
+            }
+        }
+        if (level_data.player_starts.empty()) {
+            level_data.player_starts.push_back({0, 100});
+        }
+        entities[players[0]].data.pos = level_data.player_starts[0];
         entities[players[0]].controller = make_unique<KeyboardEntityController>();
         camera_following_entity = players[0];
 
@@ -320,6 +338,9 @@ struct GameClass : Application {
         const double dt = fps_counter->deltaTime * (slow_motion ? dt_multiplier() : 1);
         ASSUME(dt != NAN);
         ASSUME(dt > 0);
+
+        const auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
+
         renderer->camera.update_zoom(dt);
         renderer->loop();
         renderer->camera.screenshake -= dt;
@@ -342,7 +363,7 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE) running = false;
-                    if (event.key.key == SDLK_R) entities[players[0]].data.pos = {0, 100};
+                    if (event.key.key == SDLK_R) entities[players[0]].data.pos = level_data.player_starts[0];
                     if (event.key.key == SDLK_X) entities[players[0]].data.vel *= 10;
                     if (event.key.key == SDLK_F) slow_motion = !slow_motion;
                     if (event.key.key == SDLK_B) {

@@ -18,6 +18,7 @@ file(GLOB_RECURSE PROJECT_SOURCES
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CLANG_TIDY_EXE "clang-tidy")
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +26,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(${PROJECT_NAME_VAR}
     ${PROJECT_SOURCES}
 )
+
+option(ENABLE_CLANG_TIDY "Run clang-tidy on project sources" OFF)
+
+if(ENABLE_CLANG_TIDY)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)
+
+    message(STATUS "clang-tidy: ${CLANG_TIDY_EXE}")
+
+    set_target_properties(${PROJECT_NAME_VAR}
+        PROPERTIES
+            CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
+            C_CLANG_TIDY "${CLANG_TIDY_EXE}"
+    )
+endif()
 
 include(FetchContent)
 
