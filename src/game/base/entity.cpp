@@ -78,7 +78,9 @@ void Game::Entity::tick_position(double deltaTime) {
             };
             const auto tile_solid = [&](int ix, int iy) -> bool {
                 if (ix < 0 || iy < 0 || ix >= cm.size.x || iy >= cm.size.y) return false;
-                return level.tile_groups.at((uint)cm.tilemap[ix][iy]) == "Solid";
+                const auto key = (uint)cm.tilemap[ix][iy];
+                if (!level.tile_groups.contains(key)) return false;
+                return level.tile_groups.at(key) == "Solid";
             };
 
             const double local_before = to_local(edge_before, axis);

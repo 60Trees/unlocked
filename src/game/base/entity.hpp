@@ -5,6 +5,8 @@
 #include <glm/vec2.hpp>
 #include <memory>
 #include "entity_movements.hpp"
+#include "game/anim.hpp"
+#include <LDtkLoader/Entity.hpp>
 
 namespace Game {
     /// `0` = activated this frame, `<0` = not activated, `>0` = how long it's been activated for (seconds)
@@ -45,9 +47,9 @@ namespace Game {
     struct Hitbox {
         using vec2_t = glm::vec<2, double>;
         vec2_t size;
-        vec2_t pos;
-        vec2_t vel;
-        double speed;
+        vec2_t pos = {0, 0};
+        vec2_t vel = {0, 0};
+        double speed = 0;
 
         struct {
             ControlData up, down, left, right;
@@ -122,7 +124,7 @@ namespace Game {
             double speed;
         };
 
-        virtual void spawn() { data = get_defaults(); }
+        virtual void spawn(const ldtk::Entity* e = nullptr) { data = get_defaults(); }
 
         virtual void tick_all(double deltaTime);
         virtual void tick(double deltaTime) {}
@@ -136,6 +138,10 @@ namespace Game {
         virtual ~Entity() = default;
 
         bool wants_to_despawn = false;
+
+        virtual bool does_render() const { return movement.get(); }
+        virtual AnimationFrame get_anim_frame() const { if (!movement) return {}; return movement->anim_frame(this); }
+        virtual Direction get_direction() const { if (!movement) return false; return movement->direction; }
 
         _REGISTERABLE(Entity);
     };

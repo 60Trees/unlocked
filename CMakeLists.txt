@@ -27,7 +27,7 @@ add_executable(${PROJECT_NAME_VAR}
     ${PROJECT_SOURCES}
 )
 
-option(ENABLE_CLANG_TIDY "Run clang-tidy on project sources" OFF)
+option(ENABLE_CLANG_TIDY "Run clang-tidy on project sources" ON)
 
 if(ENABLE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)

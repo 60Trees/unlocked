@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <utils.hpp>
 #include <game/anim.hpp>
@@ -18,6 +19,18 @@ namespace Game {
         std::optional<Direction> forced_direction = std::nullopt;
 
         _REGISTERABLE(EntityMovement);
+    };
+
+    struct FunctionEntityMovement : EntityMovement {
+        std::function<AnimationFrame(const Entity*)> _render = nullptr;
+        std::function<void(Entity*, double)> _tick = nullptr;
+
+        void tick(Entity* e, double deltaTime) override {
+            if (_tick) _tick(e, deltaTime);
+        }
+        AnimationFrame anim_frame(const Entity* e) override {
+            return _render ? _render(e) : AnimationFrame{};
+        }
     };
 
     struct EntityAbility {

@@ -1,13 +1,23 @@
-#include "player.hpp"
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
 #include <cmath>
 #include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
+#include <game/base/entity.hpp>
+
+namespace Game {
+    struct Player : Entity {
+        Hitbox get_defaults() const override;
+        std::string name() const override { return "player"; }
+        void spawn(const ldtk::Entity* e = nullptr) override;
+    };
+}  // namespace Game
 
 #undef debug_screen
-#define debug_screen(key, msg) do {} while (0)
+#define debug_screen(key, msg) \
+    do {                       \
+    } while (0)
 
 using namespace Game;
 using namespace Base;
@@ -235,6 +245,8 @@ namespace PlayerMovements {
         void tick(Entity* e, double deltaTime) override {
             Walk::tick(e, deltaTime);
 
+            if (e->data.colliding_with.left || e->data.colliding_with.right) is_slow = true;
+
             if (!is_changing_direction(e) && !has_enacted_boost) {
                 forced_direction = std::nullopt;
                 if (e->data.vel.x < 0)
@@ -401,9 +413,8 @@ namespace PlayerAbilities {
             const auto dir = walking->direction;
 
             const auto is_slow = [&] {
-                if (walking->time_spent_walking < 0.5) return true;
-                if (dir == RIGHT) return e->controls.right.charge > 0.4;
-                return e->controls.left.charge > 0.4;
+                if (abs(e->data.vel.x) < 80) return true;
+                return false;
             }();
 
             e->set_movement<PlayerMovements::QuickTurn>();
@@ -436,8 +447,8 @@ Hitbox Player::get_defaults() const {
     };
 }
 
-void Player::spawn() {
-    Entity::spawn();
+void Player::spawn(const ldtk::Entity* e) {
+    Entity::spawn(e);
     const auto add_ability = [&](EntityAbility* ability) {
         current_abilities.push_back(unique_ptr<EntityAbility>(dynamic_cast<EntityAbility*>(ability)));
     };

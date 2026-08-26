@@ -39,7 +39,6 @@ struct WorldHandlerImpl : Game::WorldHandler {
     void loadFromMemory(span<const unsigned char> bytes) override {
         main_world.loadFromMemory(bytes.data(), bytes.size());
 
-
 #if use_ldtkimport
         // ldtkimport can load straight from the in-memory json text, no temp file needed.
         ldtkimport_file.loadFromText(reinterpret_cast<const char*>(bytes.data()), bytes.size(), false, "world_handler_collision_rules");
@@ -193,7 +192,11 @@ dap> ? ii_level.m_tileGrids[1]
         nlohmann::json collision_json = nlohmann::json::parse(stream);
 
         size_t leveltris_i = 0;
-        for (auto& layer : level.allLayers()) {
+
+        const auto& all_layers = level.allLayers();
+
+        for (int i_ = all_layers.size(); i_-- > 0;) {
+            const auto& layer = all_layers[i_];
             if (!layer.hasTileset()) continue;
 
             bool is_collision_layer = false;
@@ -304,6 +307,8 @@ dap> ? ii_level.m_tileGrids[1]
 
                 if (flipX) swap(rect.uv.l, rect.uv.r);
                 if (flipY) swap(rect.uv.t, rect.uv.b);
+
+                
 
                 Renderer::make_textured_square(rect, tris.vertices);
             };

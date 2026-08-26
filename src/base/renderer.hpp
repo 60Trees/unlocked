@@ -16,6 +16,44 @@
 GETTER_DEFINITION(Base::BaseClass, GetRenderer);
 namespace Base {
     struct Renderer : BaseClass {
+        // <AI>
+        enum class PixelFormat : uint8_t { R8Unorm, RGBA8Unorm };
+
+        // Upload raw CPU pixel data as a texture — no image decode. Useful for masks, LUTs,
+        // baked data, noise textures, minimaps... not just this feature.
+        virtual ushort createTexture(uint32_t width, uint32_t height, PixelFormat format, std::span<const std::byte> pixels) = 0;
+
+        // Patch a sub-rect of a texture created via createTexture/addTextureFromBytes.
+        virtual void updateTextureRegion(
+            ushort id, uint32_t x, uint32_t y, uint32_t width, uint32_t height, PixelFormat format, std::span<const std::byte> pixels) = 0;
+
+        // Lets game code do screen<->world math for screen-space effects without duplicating
+        // renderer-internal state.
+        virtual glm::vec<2, uint32_t> get_viewport_size() const = 0;
+        // </AI>
+
+        struct CameraBound {
+            glm::vec<2, double> topleft;
+            glm::vec<2, double> bottomright;
+
+            // zoom out as much as possible ?
+            bool lock_zoom = false;
+
+            bool snap_in_bounds = false;
+            bool snappy = false;
+
+            // none = center on player, multiple = center at closest one to player
+            std::vector<glm::vec<2, double>> center_at{};
+
+            float zoom_level = -1;
+
+            // ignored by renderer
+            int8_t priority = 0;
+            inline auto operator<=>(const CameraBound& oth) { return priority <=> oth.priority; }
+        };
+
+        const CameraBound* camera_bound = nullptr;
+
         virtual ushort addTextureFromBytes(std::string_view name, std::span<const char> bytes) = 0;
         virtual ushort getTextureID(std::string_view name) = 0;
 
@@ -93,6 +131,8 @@ namespace Base {
         struct PostEffect {
             std::string_view pixel_shader;
             std::span<const std::byte> params;
+            static constexpr int kMaxPostExtraTextures = 4;
+            std::span<const ushort> extra_textures = {};
             bool enabled = true;
         };
         std::vector<PostEffect> post_queue{};

@@ -44,20 +44,21 @@ namespace hidden {
     };
 }  // namespace hidden
 
-#define _REGISTERABLE(className)                                                       \
-    public:                                                                            \
-    inline static void register_new(const std::string& name, void* (*constructor)()) { \
-        get_registries()[name] = reinterpret_cast<className* (*)()>(constructor);      \
-    }                                                                                  \
-    [[nodiscard]] inline static className* make_new(const std::string& name) {         \
-        if (!get_registries().contains(name)) return nullptr;                          \
-        return get_registries()[name]();                                               \
-    }                                                                                  \
-                                                                                       \
-    private:                                                                           \
-    static std::map<std::string, className* (*)()>& get_registries() {                 \
-        static std::map<std::string, className* (*)()> registry{};                     \
-        return registry;                                                               \
+#define _REGISTERABLE(className)                                                                                   \
+    public:                                                                                                        \
+    inline static void register_new(const std::string& name, void* (*constructor)()) {                             \
+        get_registries()[name] = reinterpret_cast<className* (*)()>(constructor);                                  \
+    }                                                                                                              \
+    [[nodiscard]] inline static className* make_new(const std::string& name) {                                     \
+        if (!get_registries().contains(name)) return nullptr;                                                      \
+        return get_registries()[name]();                                                                           \
+    }                                                                                                              \
+    [[nodiscard]] inline static bool contains(const std::string& name) { return get_registries().contains(name); } \
+                                                                                                                   \
+    private:                                                                                                       \
+    static std::map<std::string, className* (*)()>& get_registries() {                                             \
+        static std::map<std::string, className* (*)()> registry{};                                                 \
+        return registry;                                                                                           \
     }
 
 #define _REGISTERABLE_SINGLETON(className)                                             \
@@ -165,13 +166,22 @@ extern "C" void add_debug_stream(const char* entry, size_t entrylen, const char*
 #    define DEBUG_SCREEN true
 #    define debug_screen(entry, content)                                                                                \
         do {                                                                                                            \
-            ::std::ostringstream _entry;                                                                                       \
+            ::std::ostringstream _entry;                                                                                \
             _entry << entry;                                                                                            \
-            ::std::ostringstream _content;                                                                                     \
+            ::std::ostringstream _content;                                                                              \
             _content << content;                                                                                        \
             ::add_debug_stream(_entry.str().data(), _entry.str().size(), _content.str().data(), _content.str().size()); \
         } while (0)
 #endif
 
-void handle_loop(std::function<bool ()> loop,  std::function<void()> quit);
+#define runtime_warn_count(msg, max_count)     \
+    do {                                       \
+        static unsigned int warning_count = 0; \
+        if (warning_count < max_count) {       \
+            std::cout << msg << std::endl;     \
+            warning_count++;                   \
+        }                                      \
+    } while (0)
+#define runtime_warn(msg) runtime_warn_count(msg, 1)
 
+void handle_loop(std::function<bool()> loop, std::function<void()> quit);

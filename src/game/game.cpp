@@ -12,8 +12,12 @@
 #include <SDL3/SDL_scancode.h>
 
 #include <fs_utils.hpp>
+#include <stdexcept>
 #include <utility>
+#include "LDtkLoader/DataTypes.hpp"
 #include "game/base/world_handler.hpp"
+#include "entities/puzzle_aspects.hpp"
+#include "game/systems/light_shafts.hpp"
 
 #ifdef DEBUG_SCREEN
 #    include <imgui_impl_sdl3.h>
@@ -32,6 +36,10 @@ extern "C" double dt_multiplier();
 using VertexArray = Renderer::VertexArray;
 
 struct GameClass : Application {
+    LightShaftSystem light_shafts;
+
+    unique_ptr<PuzzleState> puzzle_state{};
+
     EntityList entities;
     EntityList::index_t camera_following_entity = EntityList::null_index;
 
@@ -171,7 +179,32 @@ struct GameClass : Application {
         return uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (uint32_t(a) << 24);
     }
 
+    struct PrevBG {
+        union Data {
+            struct Dithered {
+                uint32_t top, bottom;
+                float pixelSize;
+            } dithered;
+            struct Gradient {
+                uint32_t top, bottom;
+            } gradient;
+            struct Solid {
+                uint8_t r, g, b;
+            } solid;
+        } data;
+        enum { Dithered, Gradient, Solid, None } type = None;
+
+        auto operator==(const PrevBG& oth) const { return memcmp(this, &oth, sizeof(*this)); }
+    } prev_bg;
+
     void set_dithered_gradient_background(uint32_t top, uint32_t bottom, float pixelSize = 4.0f) {
+        {
+            PrevBG thisbg;
+            thisbg.type = thisbg.Dithered;
+            thisbg.data.dithered = {top, bottom, pixelSize};
+            if (prev_bg == thisbg) return;
+            prev_bg = thisbg;
+        }
         auto unpack = [](uint32_t c, float* out) {
             out[0] = ((c >> 0) & 0xFF) / 255.0f;
             out[1] = ((c >> 8) & 0xFF) / 255.0f;
@@ -194,6 +227,13 @@ struct GameClass : Application {
     }
 
     void set_gradient_background(uint32_t top, uint32_t bottom) {
+        {
+            PrevBG thisbg;
+            thisbg.type = thisbg.Gradient;
+            thisbg.data.gradient = {top, bottom};
+            if (prev_bg == thisbg) return;
+            prev_bg = thisbg;
+        }
         background->clear();
         background->push_back({});
         auto& layer = background->back();
@@ -207,6 +247,13 @@ struct GameClass : Application {
     }
 
     void set_solid_background(uint8_t r, uint8_t g, uint8_t b) {
+        {
+            PrevBG thisbg;
+            thisbg.type = thisbg.Solid;
+            thisbg.data.solid = {r, g, b};
+            if (prev_bg == thisbg) return;
+            prev_bg = thisbg;
+        }
         uint32_t packed = uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (0xFFu << 24);
         background->clear();
         background->push_back({});
@@ -254,6 +301,7 @@ struct GameClass : Application {
 
     struct LevelData : PlacedLevelData {
         vector<glm::vec<2, double>> player_starts;
+        vector<Renderer::CameraBound> camera_bounds;
     };
 
     void init() override {
@@ -270,14 +318,19 @@ struct GameClass : Application {
         }
 
         {
-            const auto c = world_handler->main_world.getBgColor();
-            set_solid_background(c.r, c.g, c.b);
+            const auto c = world_handler->main_world.allWorlds()[0].getBgColor();
+            debug_screen("bgcolour", "Background colour: " << +c.r << "," << +c.g << "," << +c.b);
+            // set_solid_background(c.r, c.g, c.b);
+            set_solid_background(0, 0, 0);
         }
 
         world_handler->uploadAllTilesets(*renderer);
 
-        world_handler->placed_levels.push_back(PlacedLevel{world_handler->getlevel(0, 0), {0, 0}, make_shared<LevelData>(), {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {4, "Solid"}}});
+        world_handler->placed_levels.push_back(PlacedLevel{world_handler->getlevel(0, 0), {0, 0}, make_shared<LevelData>(),
+            {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}}});
         world_handler->renderDirtyLevels(*leveltris);
+        light_shafts.bake_level(*renderer, world_handler->all_level_tilemaps[&world_handler->placed_levels[0].level]);
+        light_shafts.register_post_effect(*renderer);
 
         auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
 
@@ -289,13 +342,77 @@ struct GameClass : Application {
 
         // renderer->compile_used_shaders();
 
+        const auto handle_entity = [&](const ldtk::Entity& entity, const std::string& name) {
+            if (name == "PlayerStart") {
+                const auto pos = entity.getPosition();
+                level_data.player_starts.push_back({pos.x, -pos.y});
+                return;
+            }
+            if (name.contains("Camera")) {
+                auto size = entity.getSize();
+                auto pos = entity.getPosition();
+                pos.y *= -1;
+                const auto tl = pos;
+                const auto br = ldtk::IntPoint{pos.x + size.x, pos.y - size.y};
+                if (name == "CameraLevelBound") {
+                    level_data.camera_bounds.push_back(Renderer::CameraBound{
+                        .topleft = {tl.x, tl.y},
+                        .bottomright = {br.x, br.y},
+                        .lock_zoom = false,
+                        .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
+                        .snappy = false,
+                        .center_at = {},
+                        .zoom_level = -1,
+                        .priority = -1,
+                    });
+                } else if (name == "CameraLooseBound") {
+                    level_data.camera_bounds.push_back(Renderer::CameraBound{
+                        .topleft = {tl.x, tl.y},
+                        .bottomright = {br.x, br.y},
+                        .lock_zoom = false,
+                        .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
+                        .snappy = entity.getField<bool>("Snappy").value(),
+                        .center_at = {},
+                        .zoom_level = entity.getField<float>("ZoomLevel").value_or(-1),
+                        .priority = 1,
+                    });
+                } else if (name == "CameraZoomOutBound") {
+                    level_data.camera_bounds.push_back(Renderer::CameraBound{
+                        .topleft = {tl.x, tl.y},
+                        .bottomright = {br.x, br.y},
+                        .lock_zoom = true,
+                        .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
+                        .snappy = entity.getField<bool>("Snappy").value_or(false),
+                        .center_at = {},
+                        .zoom_level = -1,
+                        .priority = 1,
+                    });
+                } else if (name == "CameraLockedBound") {
+                    level_data.camera_bounds.push_back(Renderer::CameraBound{
+                        .topleft = {tl.x, tl.y},
+                        .bottomright = {br.x, br.y},
+                        .lock_zoom = true,
+                        .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
+                        .snappy = entity.getField<bool>("Snappy").value(),
+                        .center_at = {},
+                        .zoom_level = -1,
+                        .priority = 1,
+                    });
+                } else if (name == "CameraCenterHere") {
+                } else
+                    throw runtime_error("Unknown camera bound: " + name +
+                                        ". (Hint: Don't include \"camera\" in the entity name if it's not a camera bound)");
+                return;
+            }
+
+            entities.spawn_entity(name);
+        };
+
         players.push_back(entities.spawn_entity("player"));
         for (const auto& layer : world_handler->placed_levels[0].level.allLayers()) {
             for (const auto& entity : layer.allEntities()) {
-                if (entity.getName() == "PlayerStart") {
-                    const auto pos = entity.getPosition();
-                    level_data.player_starts.push_back({pos.x, -pos.y});
-                }
+                const auto name = entity.getName();
+                handle_entity(entity, name);
             }
         }
         if (level_data.player_starts.empty()) {
@@ -341,7 +458,18 @@ struct GameClass : Application {
 
         const auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
 
-        renderer->camera.update_zoom(dt);
+        if (entities.exists(camera_following_entity)) {
+            const auto& e = entities[camera_following_entity];
+            renderer->camera.follow_point(e.data.hitbox_center(), dt);
+            renderer->camera_bound = nullptr;
+            for (const auto& bound : level_data.camera_bounds) {
+                // TODO: Fix camera bounds
+                // renderer->camera_bound = &bound;
+            }
+        }
+
+        light_shafts.update(*renderer, -45.0f /* sun angle, wire up however you like */);
+
         renderer->loop();
         renderer->camera.screenshake -= dt;
         if (renderer->camera.screenshake < 0) renderer->camera.screenshake = 0;
@@ -401,9 +529,6 @@ struct GameClass : Application {
                 const bool* data = SDL_GetKeyboardState(&size);
                 controller->keyboard = std::span<const bool>(data, (size_t)size);
             }
-
-            if (entities.exists(camera_following_entity))
-                renderer->camera.follow_point(entities[camera_following_entity].data.hitbox_center(), dt);
         }
 
         bool should_clean_entities = false;

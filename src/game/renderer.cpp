@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
@@ -16,7 +17,7 @@
 #include <webgpu/webgpu.h>
 #include <cassert>
 #include <cstdio>
-#include "SDL3/SDL_properties.h"
+#include "glm/ext/vector_float4.hpp"
 
 #ifdef __EMSCRIPTEN__
 #    include <emscripten.h>
@@ -228,11 +229,105 @@ class GameRenderer : public Base::Renderer {
     void ensureVertexScratch(size_t vertexCount);
     void ensureParamsScratch(size_t bytesNeeded);
     static GPUVertex packVertex(const Vertex& v);
+
+    void applyCameraBound(double dt);
+
+    double baseZoom = -1.0;  // "true" desired zoom, captured once, immune to bound clamping
+
+    ushort createTexture(uint32_t width, uint32_t height, PixelFormat format, std::span<const std::byte> pixels) override;
+
+    void updateTextureRegion(
+        ushort id, uint32_t x, uint32_t y, uint32_t width, uint32_t height, PixelFormat format, std::span<const std::byte> pixels) override;
+
+    glm::vec<2, uint32_t> get_viewport_size() const override;
+    WGPUBindGroup buildPostEffectBindGroup(WGPUBindGroupLayout bgl, const PostEffect& fx, int sceneIndex);
 };
 
 GETTER_IMPL(Base::BaseClass, GetRenderer, GameRenderer);
 
 // ============================== lifecycle ==============================
+
+// Clamps camera.x/y (and optionally zoom) so the view stays inside camera_bound.
+// zoom is defined as "world units spanned across min(surfaceWidth, surfaceHeight)"
+// (see pxPerUnit = minDim / zoom in loop()), so the visible half-extents in world
+// units are (zoom * aspect) / 2 along each axis.
+void GameRenderer::applyCameraBound(double dt) {
+    if (!camera_bound) return;
+    const CameraBound& cb = *camera_bound;
+
+    const float left = std::min(cb.topleft.x, cb.bottomright.x);
+    const float right = std::max(cb.topleft.x, cb.bottomright.x);
+    const float top = std::max(cb.topleft.y, cb.bottomright.y);
+    const float bottom = std::min(cb.topleft.y, cb.bottomright.y);
+
+    const float minDim = (float)std::min(surfaceWidth, surfaceHeight);
+
+    const glm::vec2 cb_size = {right - left, top - bottom};
+
+    const float max_zoom = mth::min(cb_size.x, cb_size.y);
+    // returns {l, r, t, b}
+    const auto get_camera_pos_bound = [&](float zoom) -> glm::vec4 {
+        // zoom = 10 means that 10 world units must fit across min(surfaceWidth, surfaceHeight)
+        const float raw_zoom = minDim / zoom;
+        debug_screen("zoom", "Raw zoom: " << raw_zoom);
+
+        return {
+            left + surfaceWidth / (raw_zoom),
+            right - surfaceWidth / (raw_zoom),
+            top - surfaceHeight / (raw_zoom),
+            bottom + surfaceHeight / (raw_zoom),
+        };
+    };
+
+    const glm::vec4 pos_bound = get_camera_pos_bound(max_zoom);
+    debug_screen("renderer", "" << "\nCamera X: " << camera.x << "\nCamera Y: " << camera.y << "\nminDim: " << minDim << "\nMax zoom: "
+                                << max_zoom << "\nPos bound: {" << cb.topleft.x << "," << cb.topleft.y << "," << cb.bottomright.x << ","
+                                << cb.bottomright.y << "}\nScreen size: " << surfaceWidth << "," << surfaceHeight);
+    debug_screen("aaa", "Pixels from left of screen: " << surfaceWidth / ((minDim / max_zoom)));
+
+    if (camera.x < pos_bound[0]) camera.x = pos_bound[0];
+    if (camera.x > pos_bound[1]) camera.x = pos_bound[1];
+    if (camera.y > pos_bound[2]) camera.y = pos_bound[2];
+    if (camera.y < pos_bound[3]) camera.y = pos_bound[3];
+
+    // camera._real_zoom = 40;
+
+    return;
+
+    const float boundW = right - left;
+    const float boundH = bottom - top;
+
+    if (minDim <= 0.0) return;
+    const float aspectW = surfaceWidth / minDim;
+    const float aspectH = surfaceHeight / minDim;
+
+    // fitZoom : smallest zoom that still shows the WHOLE bound (used by lock_zoom).
+    // fillZoom: largest zoom that stays INSIDE the bound on every axis (used to
+    //           "squeeze" the camera when the box is smaller than the view).
+    const float fitZoom = std::max(boundW / aspectW, boundH / aspectH);
+    const float fillZoom = std::min(boundW / aspectW, boundH / aspectH);
+
+    if (cb.zoom_level > 0) {
+        camera.zoom = cb.zoom_level;
+        if (cb.snappy) camera._real_zoom = cb.zoom_level;
+    } else if (cb.lock_zoom) {
+        camera.zoom = fitZoom;
+        if (cb.snappy) camera._real_zoom = fitZoom;
+    } else if (cb.snap_in_bounds && camera.zoom > fillZoom) {
+        // Box is smaller than the current view on some axis — zoom in rather
+        // than reveal area past its edges.
+        camera.zoom = fillZoom;
+        if (cb.snappy) camera._real_zoom = fillZoom;
+    }
+
+    if (cb.snap_in_bounds) {
+        const float halfW = camera._real_zoom * aspectW * 0.5;
+        const float halfH = camera._real_zoom * aspectH * 0.5;
+
+        camera.x = (boundW <= halfW * 2.0) ? (left + right) * 0.5 : std::clamp((float)camera.x, left + halfW, right - halfW);
+        camera.y = (boundH <= halfH * 2.0) ? (top + bottom) * 0.5 : std::clamp((float)camera.y, top + halfH, bottom - halfH);
+    }
+}
 
 void GameRenderer::init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) throw _err(("SDL_Init failed: {}", SDL_GetError()));
@@ -646,14 +741,19 @@ WGPURenderPipeline GameRenderer::buildPipeline(const Material& mat) {
 
 GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx) {
     PostPipeline pp;
-    std::string psSrc =
+    constexpr int kMaxExtra = PostEffect::kMaxPostExtraTextures;
+
+    std::string prelude =
         "struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };\n"
         "@group(0) @binding(0) var prevTex: texture_2d<f32>;\n@group(0) @binding(1) var prevSamp: sampler;\n"
         "@group(0) @binding(2) var<uniform> params: array<vec4f, " +
-        std::to_string(kParamMax / 16) + ">;\n" + std::string(fx.pixel_shader);
+        std::to_string(kParamMax / 16) + ">;\n";
+    for (int i = 0; i < kMaxExtra; ++i) prelude += std::format("@group(0) @binding({}) var extraTex{}: texture_2d<f32>;\n", 3 + i, i);
+
+    std::string psSrc = prelude + std::string(fx.pixel_shader);
     WGPUShaderModule fs = compileWGSL(psSrc, "Post Shader FS");
 
-    WGPUBindGroupLayoutEntry entries[3]{
+    std::vector<WGPUBindGroupLayoutEntry> entries = {
         {.binding = 0,
             .visibility = WGPUShaderStage_Fragment,
             .texture = {.sampleType = WGPUTextureSampleType_Float, .viewDimension = WGPUTextureViewDimension_2D}},
@@ -661,15 +761,16 @@ GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx)
         {.binding = 2,
             .visibility = WGPUShaderStage_Fragment,
             .buffer = {.type = WGPUBufferBindingType_Uniform, .hasDynamicOffset = true, .minBindingSize = kParamMax}}};
-    WGPUBindGroupLayoutDescriptor bgld{.label = "Post Effect BGL"_wgpu, .entryCount = 3, .entries = entries};
+    for (int i = 0; i < kMaxExtra; ++i)
+        entries.push_back({.binding = (uint32_t)(3 + i),
+            .visibility = WGPUShaderStage_Fragment,
+            .texture = {.sampleType = WGPUTextureSampleType_Float, .viewDimension = WGPUTextureViewDimension_2D}});
+
+    WGPUBindGroupLayoutDescriptor bgld{.label = "Post Effect BGL"_wgpu, .entryCount = (uint32_t)entries.size(), .entries = entries.data()};
     WGPUBindGroupLayout bgl = wgpuDeviceCreateBindGroupLayout(device, &bgld);
 
-    for (int i = 0; i < 2; ++i) {
-        WGPUBindGroupEntry e[3] = {{.binding = 0, .textureView = sceneView[i]}, {.binding = 1, .sampler = postSampler},
-            {.binding = 2, .buffer = paramsScratch, .size = kParamMax}};
-        WGPUBindGroupDescriptor d{.label = "Post Effect BG"_wgpu, .layout = bgl, .entryCount = 3, .entries = e};
-        pp.bg[i] = wgpuDeviceCreateBindGroup(device, &d);
-    }
+    pp.bg[0] = buildPostEffectBindGroup(bgl, fx, 0);
+    pp.bg[1] = buildPostEffectBindGroup(bgl, fx, 1);
 
     WGPUColorTargetState target{.format = surfaceFormat, .writeMask = WGPUColorWriteMask_All};
     WGPUFragmentState frag{.module = fs, .entryPoint = "fs_main"_wgpu, .targetCount = 1, .targets = &target};
@@ -683,14 +784,27 @@ GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx)
     pp.pipeline = wgpuDeviceCreateRenderPipeline(device, &pd);
 
     wgpuPipelineLayoutRelease(layout);
-    wgpuBindGroupLayoutRelease(bgl);  // pipeline keeps its own internal reference
+    wgpuBindGroupLayoutRelease(bgl);
     wgpuShaderModuleRelease(fs);
     return pp;
+}
+
+WGPUBindGroup GameRenderer::buildPostEffectBindGroup(WGPUBindGroupLayout bgl, const PostEffect& fx, int sceneIndex) {
+    std::vector<WGPUBindGroupEntry> e = {{.binding = 0, .textureView = sceneView[sceneIndex]}, {.binding = 1, .sampler = postSampler},
+        {.binding = 2, .buffer = paramsScratch, .size = kParamMax}};
+    for (int i = 0; i < PostEffect::kMaxPostExtraTextures; ++i) {
+        ushort texId = i < (int)fx.extra_textures.size() ? fx.extra_textures[i] : nullTextureId;
+        e.push_back({.binding = (uint32_t)(3 + i), .textureView = textures[texId < textures.size() ? texId : nullTextureId].view});
+    }
+    WGPUBindGroupDescriptor d{.label = "Post Effect BG"_wgpu, .layout = bgl, .entryCount = (uint32_t)e.size(), .entries = e.data()};
+    return wgpuDeviceCreateBindGroup(device, &d);
 }
 
 void GameRenderer::compile_used_shaders() {
     for (size_t i = 0; i < renderqueue().size(); i++) {
         VertexLayer& vl = renderqueue()[i];
+        if (vl.material.vertex_shader.empty()) continue;
+        if (vl.material.pixel_shader.empty()) continue;
 
         PipelineKey key{vl.material.vertex_shader.data(), vl.material.pixel_shader.data(), vl.material.screenspace, vl.material.blend_mode};
 
@@ -706,18 +820,8 @@ void GameRenderer::compile_used_shaders() {
         }
 
         if (it->second.bg[0]) continue;  // still valid
-
-        // resize dropped the bind groups (they referenced the old scene views) — rebuild them
         WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(it->second.pipeline, 0);
-
-        for (int i = 0; i < 2; ++i) {
-            WGPUBindGroupEntry e[3] = {{.binding = 0, .textureView = sceneView[i]}, {.binding = 1, .sampler = postSampler},
-                {.binding = 2, .buffer = paramsScratch, .size = kParamMax}};
-
-            WGPUBindGroupDescriptor d{.label = "Post Effect BG"_wgpu, .layout = bgl, .entryCount = 3, .entries = e};
-
-            it->second.bg[i] = wgpuDeviceCreateBindGroup(device, &d);
-        }
+        for (int i = 0; i < 2; ++i) it->second.bg[i] = buildPostEffectBindGroup(bgl, fx, i);
     }
 }
 
@@ -814,6 +918,7 @@ void GameRenderer::loop() {
     double dt = lastTick ? (double)(now - lastTick) / 1000.0 : 0.0;
     lastTick = now;
     camera.update_zoom(dt);
+    applyCameraBound(dt);
 
     compile_used_shaders();
 
@@ -839,6 +944,9 @@ void GameRenderer::loop() {
     firstVertex.clear();
     for (size_t i = 0; i < renderqueue().size(); i++) {
         VertexLayer& vl = renderqueue()[i];
+        if (vl.material.vertex_shader.empty()) continue;
+        if (vl.material.pixel_shader.empty()) continue;
+
         firstVertex.push_back((uint32_t)gpuVerts.size());
         for (const Vertex& v : vl.vertices) gpuVerts.push_back(packVertex(v));
     }
@@ -861,7 +969,13 @@ void GameRenderer::loop() {
             cursor += kParamAlign;
             return off;
         };
-        for (size_t i = 0; i < renderqueue().size(); ++i) matParamOffset[i] = reserve(renderqueue()[i].material.params);
+        for (size_t i = 0; i < renderqueue().size(); ++i) {
+            VertexLayer& vl = renderqueue()[i];
+            if (vl.material.vertex_shader.empty()) continue;
+            if (vl.material.pixel_shader.empty()) continue;
+            matParamOffset[i] = reserve(renderqueue()[i].material.params);
+        }
+
         for (size_t i = 0; i < post_queue.size(); ++i) postParamOffset[i] = reserve(post_queue[i].params);
         ensureParamsScratch(std::max<size_t>(cursor, kParamAlign));
         for (auto& [src, off] : writes) wgpuQueueWriteBuffer(queue, paramsScratch, off, src, kParamMax);
@@ -882,6 +996,9 @@ void GameRenderer::loop() {
         for (size_t i = 0; i < renderqueue().size(); ++i) {
             const VertexLayer& vl = renderqueue()[i];
             if (vl.vertices.empty()) continue;
+            if (vl.material.pixel_shader.empty()) continue;
+            if (vl.material.vertex_shader.empty()) continue;
+
             const Material& mat = vl.material;
             PipelineKey key{mat.vertex_shader.data(), mat.pixel_shader.data(), mat.screenspace, mat.blend_mode};
             wgpuRenderPassEncoderSetPipeline(pass, pipelines.at(key));
@@ -948,4 +1065,50 @@ void GameRenderer::loop() {
     wgpuTextureViewRelease(backbuffer);
     wgpuTextureRelease(st.texture);
 }
+
+uint16_t GameRenderer::createTexture(uint32_t w, uint32_t h, PixelFormat format, std::span<const std::byte> pixels) {
+    const WGPUTextureFormat fmt = format == PixelFormat::R8Unorm ? WGPUTextureFormat_R8Unorm : WGPUTextureFormat_RGBA8Unorm;
+    const uint32_t bpp = format == PixelFormat::R8Unorm ? 1 : 4;
+
+    WGPUTextureDescriptor td{.label = "Baked Texture"_wgpu,
+        .usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst,
+        .dimension = WGPUTextureDimension_2D,
+        .size = {w, h, 1},
+        .format = fmt,
+        .mipLevelCount = 1,
+        .sampleCount = 1};
+    WGPUTexture tex = wgpuDeviceCreateTexture(device, &td);
+
+    if (!pixels.empty()) {
+        WGPUTexelCopyTextureInfo dst{.texture = tex, .aspect = WGPUTextureAspect_All};
+        WGPUTexelCopyBufferLayout layout{.bytesPerRow = w * bpp, .rowsPerImage = h};
+        WGPUExtent3D size{w, h, 1};
+        wgpuQueueWriteTexture(queue, &dst, pixels.data(), pixels.size(), &layout, &size);
+    }
+
+    WGPUTextureViewDescriptor vd{
+        .format = fmt, .dimension = WGPUTextureViewDimension_2D, .mipLevelCount = 1, .arrayLayerCount = 1, .aspect = WGPUTextureAspect_All};
+    WGPUTextureView view = wgpuTextureCreateView(tex, &vd);
+
+    WGPUBindGroupEntry be[2] = {{.binding = 0, .textureView = view}, {.binding = 1, .sampler = texSampler}};
+    WGPUBindGroupDescriptor bgd{.label = "Baked Texture BG"_wgpu, .layout = atlasBGL, .entryCount = 2, .entries = be};
+    WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device, &bgd);
+
+    uint16_t id = (uint16_t)textures.size();
+    textures.push_back({tex, view, bg, (int)w, (int)h});
+    return id;
+}
+
+void GameRenderer::updateTextureRegion(
+    ushort id, uint32_t x, uint32_t y, uint32_t w, uint32_t h, PixelFormat format, std::span<const std::byte> pixels) {
+    if (id >= textures.size()) return;
+    const uint32_t bpp = format == PixelFormat::R8Unorm ? 1 : 4;
+    WGPUTexelCopyTextureInfo dst{.texture = textures[id].texture, .origin = {x, y, 0}, .aspect = WGPUTextureAspect_All};
+    WGPUTexelCopyBufferLayout layout{.bytesPerRow = w * bpp, .rowsPerImage = h};
+    WGPUExtent3D size{w, h, 1};
+    wgpuQueueWriteTexture(queue, &dst, pixels.data(), pixels.size(), &layout, &size);
+}
+
+glm::vec<2, uint32_t> GameRenderer::get_viewport_size() const { return {surfaceWidth, surfaceHeight}; }
+
 // </AI>

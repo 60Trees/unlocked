@@ -20,10 +20,11 @@ namespace Game {
             if (expected == null_index) expected++;
             return expected;
         }
-        [[nodiscard]] index_t spawn_entity(std::string_view entity_name) {
+        index_t spawn_entity(std::string_view entity_name, const ldtk::Entity* e = nullptr) {
+            if (!Entity::contains(std::string(entity_name))) return null_index;
             const auto id = get_empty_index();
             entities[id] = std::unique_ptr<Entity>{Entity::make_new(std::string{entity_name})};
-            entities[id]->spawn();
+            entities[id]->spawn(e);
             return id;
         }
         [[nodiscard]] bool exists(const index_t entity_index) const {
