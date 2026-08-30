@@ -126,10 +126,14 @@ namespace Game {
 
         virtual void spawn(const ldtk::Entity* e = nullptr) { data = get_defaults(); }
 
-        virtual void tick_all(double deltaTime);
-        virtual void tick(double deltaTime) {}
-        virtual void tick_position(double deltaTime);
+        virtual void tick_all(double deltaTime, EntityList& others);
+        virtual void tick(double deltaTime, EntityList& others) {}
+        virtual void tick_position(double deltaTime, EntityList& others);
         virtual void despawn() {}
+
+        Duration pause_time = 0.0f;
+
+        virtual bool colliding_with(const Entity* other) const;
 
         virtual Hitbox get_defaults() const = 0;
 

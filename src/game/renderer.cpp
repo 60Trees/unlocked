@@ -17,7 +17,6 @@
 #include <webgpu/webgpu.h>
 #include <cassert>
 #include <cstdio>
-#include "glm/ext/vector_float4.hpp"
 
 #ifdef __EMSCRIPTEN__
 #    include <emscripten.h>
@@ -188,7 +187,7 @@ class GameRenderer : public Base::Renderer {
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
     WGPUTextureFormat surfaceFormat = WGPUTextureFormat_Undefined;
-    uint32_t surfaceWidth = 0, surfaceHeight = 0;
+    uint32_t screenwidth = 0, screenheight = 0;
 
     WGPUBindGroupLayout transformBGL = nullptr, atlasBGL = nullptr, paramsBGL = nullptr, blitBGL = nullptr;
     WGPUSampler texSampler = nullptr, postSampler = nullptr;
@@ -247,87 +246,60 @@ GETTER_IMPL(Base::BaseClass, GetRenderer, GameRenderer);
 
 // ============================== lifecycle ==============================
 
-// Clamps camera.x/y (and optionally zoom) so the view stays inside camera_bound.
-// zoom is defined as "world units spanned across min(surfaceWidth, surfaceHeight)"
-// (see pxPerUnit = minDim / zoom in loop()), so the visible half-extents in world
-// units are (zoom * aspect) / 2 along each axis.
+// </AI> 100% human made. AI kept messing it up
+// so I did it myself
 void GameRenderer::applyCameraBound(double dt) {
+    using namespace glm;
+    using namespace mth;
+
     if (!camera_bound) return;
-    const CameraBound& cb = *camera_bound;
+    //return;
+    const CameraBound& b = *camera_bound;
 
-    const float left = std::min(cb.topleft.x, cb.bottomright.x);
-    const float right = std::max(cb.topleft.x, cb.bottomright.x);
-    const float top = std::max(cb.topleft.y, cb.bottomright.y);
-    const float bottom = std::min(cb.topleft.y, cb.bottomright.y);
+    const auto minscreen = mth::min(screenwidth, screenheight);
+    const auto maxscreen = mth::max(screenwidth, screenheight);
 
-    const float minDim = (float)std::min(surfaceWidth, surfaceHeight);
+    const auto screenratio = (double)minscreen / maxscreen;
 
-    const glm::vec2 cb_size = {right - left, top - bottom};
+    const auto minbound = min(b.w, b.h);
 
-    const float max_zoom = mth::min(cb_size.x, cb_size.y);
-    // returns {l, r, t, b}
-    const auto get_camera_pos_bound = [&](float zoom) -> glm::vec4 {
-        // zoom = 10 means that 10 world units must fit across min(surfaceWidth, surfaceHeight)
-        const float raw_zoom = minDim / zoom;
-        debug_screen("zoom", "Raw zoom: " << raw_zoom);
+    const auto maxzoom = minbound * screenratio;
 
-        return {
-            left + surfaceWidth / (raw_zoom),
-            right - surfaceWidth / (raw_zoom),
-            top - surfaceHeight / (raw_zoom),
-            bottom + surfaceHeight / (raw_zoom),
-        };
+    debug_screen("zyz", "Screen size: " << screenwidth << "," << screenheight);
+    debug_screen("zza", "Camera zoom: " << camera._real_zoom << " (max=" << maxzoom << ")");
+
+    if (camera._real_zoom > maxzoom) camera._real_zoom = maxzoom;
+
+    // how many screen pixels = game pixel
+    const auto rawzoom = minscreen / camera._real_zoom;
+
+    debug_screen("zzb", "- Raw zoom: " << rawzoom);
+
+    // how many game pixels you see in either direction
+    vec2 pixelsight{(float)screenwidth / 2 / rawzoom, (float)screenheight / 2 / rawzoom};
+
+    debug_screen("zzbz", "Pixel sight: " << pixelsight.x << "," << pixelsight.y);
+
+    struct {
+        double left, right, bottom, top;
+    } cambound = {
+        b.x + pixelsight.x,
+        b.x - pixelsight.x + b.w,
+        b.y + pixelsight.y - b.h,
+        b.y - pixelsight.y
     };
 
-    const glm::vec4 pos_bound = get_camera_pos_bound(max_zoom);
-    debug_screen("renderer", "" << "\nCamera X: " << camera.x << "\nCamera Y: " << camera.y << "\nminDim: " << minDim << "\nMax zoom: "
-                                << max_zoom << "\nPos bound: {" << cb.topleft.x << "," << cb.topleft.y << "," << cb.bottomright.x << ","
-                                << cb.bottomright.y << "}\nScreen size: " << surfaceWidth << "," << surfaceHeight);
-    debug_screen("aaa", "Pixels from left of screen: " << surfaceWidth / ((minDim / max_zoom)));
+    debug_screen("zzc", "Camera bound: \n- left=" << cambound.left << "\n- right=" << cambound.right << "\n- bottom=" << cambound.bottom << "\n- top=" << cambound.top);
+    debug_screen("zzd", "Camera pos (previous): " << camera.x << "," << camera.y);
 
-    if (camera.x < pos_bound[0]) camera.x = pos_bound[0];
-    if (camera.x > pos_bound[1]) camera.x = pos_bound[1];
-    if (camera.y > pos_bound[2]) camera.y = pos_bound[2];
-    if (camera.y < pos_bound[3]) camera.y = pos_bound[3];
+    if (camera.x < cambound.left) camera.x = cambound.left;
+    if (camera.x > cambound.right) camera.x = cambound.right;
+    if (camera.y < cambound.top) camera.y = cambound.top;
+    if (camera.y > cambound.bottom) camera.y = cambound.bottom;
 
-    // camera._real_zoom = 40;
-
-    return;
-
-    const float boundW = right - left;
-    const float boundH = bottom - top;
-
-    if (minDim <= 0.0) return;
-    const float aspectW = surfaceWidth / minDim;
-    const float aspectH = surfaceHeight / minDim;
-
-    // fitZoom : smallest zoom that still shows the WHOLE bound (used by lock_zoom).
-    // fillZoom: largest zoom that stays INSIDE the bound on every axis (used to
-    //           "squeeze" the camera when the box is smaller than the view).
-    const float fitZoom = std::max(boundW / aspectW, boundH / aspectH);
-    const float fillZoom = std::min(boundW / aspectW, boundH / aspectH);
-
-    if (cb.zoom_level > 0) {
-        camera.zoom = cb.zoom_level;
-        if (cb.snappy) camera._real_zoom = cb.zoom_level;
-    } else if (cb.lock_zoom) {
-        camera.zoom = fitZoom;
-        if (cb.snappy) camera._real_zoom = fitZoom;
-    } else if (cb.snap_in_bounds && camera.zoom > fillZoom) {
-        // Box is smaller than the current view on some axis — zoom in rather
-        // than reveal area past its edges.
-        camera.zoom = fillZoom;
-        if (cb.snappy) camera._real_zoom = fillZoom;
-    }
-
-    if (cb.snap_in_bounds) {
-        const float halfW = camera._real_zoom * aspectW * 0.5;
-        const float halfH = camera._real_zoom * aspectH * 0.5;
-
-        camera.x = (boundW <= halfW * 2.0) ? (left + right) * 0.5 : std::clamp((float)camera.x, left + halfW, right - halfW);
-        camera.y = (boundH <= halfH * 2.0) ? (top + bottom) * 0.5 : std::clamp((float)camera.y, top + halfH, bottom - halfH);
-    }
+    debug_screen("zze", "Camera pos (now): " << camera.x << "," << camera.y);
 }
+// <AI>
 
 void GameRenderer::init() {
     if (!SDL_Init(SDL_INIT_VIDEO)) throw _err(("SDL_Init failed: {}", SDL_GetError()));
@@ -422,13 +394,13 @@ void GameRenderer::configureSurface(int width, int height) {
         }
     }
     wgpuSurfaceCapabilitiesFreeMembers(caps);
-    surfaceWidth = (uint32_t)width;
-    surfaceHeight = (uint32_t)height;
+    screenwidth = (uint32_t)width;
+    screenheight = (uint32_t)height;
     WGPUSurfaceConfiguration cfg{.device = device,
         .format = surfaceFormat,
         .usage = WGPUTextureUsage_RenderAttachment,
-        .width = surfaceWidth,
-        .height = surfaceHeight,
+        .width = screenwidth,
+        .height = screenheight,
         .alphaMode = WGPUCompositeAlphaMode_Auto,
         .presentMode = WGPUPresentMode_Fifo};
     wgpuSurfaceConfigure(surface, &cfg);
@@ -441,7 +413,7 @@ void GameRenderer::resizeSceneTargets() {
         WGPUTextureDescriptor td{.label = i == 0 ? "SceneA"_wgpu : "SceneB"_wgpu,
             .usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding,
             .dimension = WGPUTextureDimension_2D,
-            .size = {surfaceWidth, surfaceHeight, 1},
+            .size = {screenwidth, screenheight, 1},
             .format = surfaceFormat,
             .mipLevelCount = 1,
             .sampleCount = 1};
@@ -929,11 +901,11 @@ void GameRenderer::loop() {
     if (!backbuffer) return;
 
     // --- transforms ---
-    float minDim = (float)std::min(surfaceWidth, surfaceHeight);
+    float minDim = (float)std::min(screenwidth, screenheight);
     float pxPerUnit = camera._real_zoom > 0.0 ? minDim / (float)camera._real_zoom : 0.0f;
     TransformUBO worldT{{camera.x, camera.y},
-        {surfaceWidth ? pxPerUnit * 2.0f / surfaceWidth : 0.0f, surfaceHeight ? pxPerUnit * 2.0f / surfaceHeight : 0.0f}};
-    TransformUBO uiT{{0, 0}, {surfaceWidth ? 2.0f / surfaceWidth : 0.0f, surfaceHeight ? 2.0f / surfaceHeight : 0.0f}};
+        {screenwidth ? pxPerUnit * 2.0f / screenwidth : 0.0f, screenheight ? pxPerUnit * 2.0f / screenheight : 0.0f}};
+    TransformUBO uiT{{0, 0}, {screenwidth ? 2.0f / screenwidth : 0.0f, screenheight ? 2.0f / screenheight : 0.0f}};
     wgpuQueueWriteBuffer(queue, worldUBO, 0, &worldT, sizeof(worldT));
     wgpuQueueWriteBuffer(queue, uiUBO, 0, &uiT, sizeof(uiT));
 
@@ -1109,6 +1081,6 @@ void GameRenderer::updateTextureRegion(
     wgpuQueueWriteTexture(queue, &dst, pixels.data(), pixels.size(), &layout, &size);
 }
 
-glm::vec<2, uint32_t> GameRenderer::get_viewport_size() const { return {surfaceWidth, surfaceHeight}; }
+glm::vec<2, uint32_t> GameRenderer::get_viewport_size() const { return {screenwidth, screenheight}; }
 
 // </AI>

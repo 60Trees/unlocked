@@ -40,11 +40,14 @@ namespace Game {
         void spawn(const ldtk::Entity* e = nullptr) override {
             if (!e) return;
 
+            data.pos.x = e->getPosition().x;
+            data.pos.y = -e->getPosition().y;
+
             const auto field = e->getField<ldtk::FieldType::Color>("Color");
             const auto& colourstruct = field.value_or(ldtk::Color{0, 0, 0, 255});
             colour.split = {colourstruct.r, colourstruct.g, colourstruct.b, 255};
         };
-        void tick(double) override { colour.set_opaque(); }
+        void tick(double, EntityList&) override { colour.set_opaque(); }
 
         virtual bool get_state() const = 0;
 

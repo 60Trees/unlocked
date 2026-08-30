@@ -7,9 +7,21 @@ using namespace Base;
 
 Game::Entity::vec2_t Game::Entity::get_gravity() { return {0.0, -700}; };
 
-void Game::Entity::tick_all(double deltaTime) {
-    tick_position(deltaTime);
-    tick(deltaTime);
+void Game::Entity::tick_all(double deltaTime, EntityList& oth) {
+    if (pause_time > 0) {
+        pause_time -= deltaTime;
+        return;
+    }
+    tick_position(deltaTime, oth);
+    tick(deltaTime, oth);
+}
+
+bool Game::Entity::colliding_with(const Entity* other) const {
+    const auto& a = data;
+    const auto& b = other->data;
+
+    return a.left_edge() < b.right_edge() && a.right_edge() > b.left_edge() && a.bottom_edge() < b.top_edge() &&
+           a.top_edge() > b.bottom_edge();
 }
 
 constexpr inline void cap(double& x, double max) {
@@ -17,7 +29,7 @@ constexpr inline void cap(double& x, double max) {
     if (x < -max) x = -max;
 }
 
-void Game::Entity::tick_position(double deltaTime) {
+void Game::Entity::tick_position(double deltaTime, EntityList&) {
     constexpr bool X_AXIS = 0, Y_AXIS = 1;
     constexpr bool LEFT = 0, RIGHT = 1;
 

@@ -352,12 +352,8 @@ struct GameClass : Application {
                 auto size = entity.getSize();
                 auto pos = entity.getPosition();
                 pos.y *= -1;
-                const auto tl = pos;
-                const auto br = ldtk::IntPoint{pos.x + size.x, pos.y - size.y};
                 if (name == "CameraLevelBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
-                        .topleft = {tl.x, tl.y},
-                        .bottomright = {br.x, br.y},
                         .lock_zoom = false,
                         .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
                         .snappy = false,
@@ -367,8 +363,6 @@ struct GameClass : Application {
                     });
                 } else if (name == "CameraLooseBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
-                        .topleft = {tl.x, tl.y},
-                        .bottomright = {br.x, br.y},
                         .lock_zoom = false,
                         .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
                         .snappy = entity.getField<bool>("Snappy").value(),
@@ -378,8 +372,6 @@ struct GameClass : Application {
                     });
                 } else if (name == "CameraZoomOutBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
-                        .topleft = {tl.x, tl.y},
-                        .bottomright = {br.x, br.y},
                         .lock_zoom = true,
                         .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
                         .snappy = entity.getField<bool>("Snappy").value_or(false),
@@ -389,8 +381,6 @@ struct GameClass : Application {
                     });
                 } else if (name == "CameraLockedBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
-                        .topleft = {tl.x, tl.y},
-                        .bottomright = {br.x, br.y},
                         .lock_zoom = true,
                         .snap_in_bounds = entity.getField<bool>("ForceOut").value(),
                         .snappy = entity.getField<bool>("Snappy").value(),
@@ -399,13 +389,21 @@ struct GameClass : Application {
                         .priority = 1,
                     });
                 } else if (name == "CameraCenterHere") {
+                    return;
                 } else
                     throw runtime_error("Unknown camera bound: " + name +
                                         ". (Hint: Don't include \"camera\" in the entity name if it's not a camera bound)");
+
+                auto& bound = level_data.camera_bounds.back();
+                bound.x = pos.x;
+                bound.y = pos.y;
+                bound.w = size.x;
+                bound.h = size.y;
+
                 return;
             }
 
-            entities.spawn_entity(name);
+            entities.spawn_entity(name, &entity);
         };
 
         players.push_back(entities.spawn_entity("player"));
@@ -464,7 +462,7 @@ struct GameClass : Application {
             renderer->camera_bound = nullptr;
             for (const auto& bound : level_data.camera_bounds) {
                 // TODO: Fix camera bounds
-                // renderer->camera_bound = &bound;
+                renderer->camera_bound = &bound;
             }
         }
 
@@ -539,7 +537,7 @@ struct GameClass : Application {
                 continue;
             }
             entity->controller->update_controls(*entity, entities, dt);
-            entity->tick_all(dt);
+            entity->tick_all(dt, entities);
             if (entity->wants_to_despawn) should_clean_entities = true;
 
             if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);

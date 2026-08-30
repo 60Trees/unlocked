@@ -33,8 +33,7 @@ namespace Base {
         // </AI>
 
         struct CameraBound {
-            glm::vec<2, double> topleft;
-            glm::vec<2, double> bottomright;
+            double x, y, w, h;
 
             // zoom out as much as possible ?
             bool lock_zoom = false;

@@ -23,7 +23,7 @@ struct Activatable : PuzzleObject {
         active = default_val;
     };
 
-    void tick(double deltaTime) override { PuzzleObject::tick(deltaTime); }
+    void tick(double deltaTime, EntityList& oth) override { PuzzleObject::tick(deltaTime, oth); }
 };
 
 struct Push : Activatable {};
