@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sys/types.h>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -138,22 +139,40 @@ namespace Base {
 
         struct Camera {
             float x = 0, y = 0;
+            float target_x = 0, target_y = 0;
 
             // TODO: Add screen shaking
             float screenshake = 0.0;
 
-            void follow_point(glm::vec<2, double> point, double dt) {
+            void follow_point(glm::vec<2, double> point) {
                 // x += (point.x - x) / 2 * dt * camera_speed;
                 // y += (point.y - y) / 2 * dt * camera_speed;
                 // if (mth::abs(point.x - x) <= camera_snap_distance) x = point.x;
                 // if (mth::abs(point.y - y) <= camera_snap_distance) y = point.y;
-                x = point.x;
-                y = point.y;
+
+                target_x = point.x;
+                target_y = point.y;
+
+                // double camera_speed_x = mth::abs(target_x - x);
+                // double camera_speed_y = mth::abs(target_y - y);
             }
-            double zoom = 160, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
+
+            void update_camera(double dt) {
+                x += (target_x - x) * dt * std::abs(target_x - x);
+                y += (target_y - y) * dt * std::abs(target_x - x);
+
+                using namespace std;
+
+                if (isinf(x) || isnan(x) || isinf(y) || isnan(y)) {
+                x = target_x;
+                y = target_y;
+            }
+            }
+
+            double zoom = 160, _target_zoom = 0, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
             void update_zoom(double dt) {
-                _real_zoom += (zoom - _real_zoom) / 2 * dt * zoom_speed;
-                if (mth::abs(zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = zoom;
+                _real_zoom += (_target_zoom - _real_zoom) / 2 * dt * zoom_speed;
+                if (mth::abs(_target_zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = _target_zoom;
             }
         } camera;
 

@@ -253,7 +253,7 @@ void GameRenderer::applyCameraBound(double dt) {
     using namespace mth;
 
     if (!camera_bound) return;
-    //return;
+    // return;
     const CameraBound& b = *camera_bound;
 
     const auto minscreen = mth::min(screenwidth, screenheight);
@@ -263,15 +263,19 @@ void GameRenderer::applyCameraBound(double dt) {
 
     const auto minbound = min(b.w, b.h);
 
-    const auto maxzoom = minbound * screenratio;
+    const auto maxzoom = [&] {
+        if (screenwidth < screenheight) return min(minbound, screenratio * b.h);
+        return min(minbound, screenratio * b.w);
+    }();
 
     debug_screen("zyz", "Screen size: " << screenwidth << "," << screenheight);
-    debug_screen("zza", "Camera zoom: " << camera._real_zoom << " (max=" << maxzoom << ")");
+    debug_screen("zza", "Camera zoom: " << camera._target_zoom << " (max=" << maxzoom << ")");
 
-    if (camera._real_zoom > maxzoom) camera._real_zoom = maxzoom;
+    if (camera._target_zoom > maxzoom) camera._target_zoom = maxzoom;
+    if (b.lock_zoom) camera._target_zoom = maxzoom;
 
     // how many screen pixels = game pixel
-    const auto rawzoom = minscreen / camera._real_zoom;
+    const auto rawzoom = minscreen / camera._target_zoom;
 
     debug_screen("zzb", "- Raw zoom: " << rawzoom);
 
@@ -282,20 +286,16 @@ void GameRenderer::applyCameraBound(double dt) {
 
     struct {
         double left, right, bottom, top;
-    } cambound = {
-        b.x + pixelsight.x,
-        b.x - pixelsight.x + b.w,
-        b.y + pixelsight.y - b.h,
-        b.y - pixelsight.y
-    };
+    } cambound = {b.x + pixelsight.x, b.x - pixelsight.x + b.w, b.y + pixelsight.y - b.h, b.y - pixelsight.y};
 
-    debug_screen("zzc", "Camera bound: \n- left=" << cambound.left << "\n- right=" << cambound.right << "\n- bottom=" << cambound.bottom << "\n- top=" << cambound.top);
+    debug_screen("zzc", "Camera bound: \n- left=" << cambound.left << "\n- right=" << cambound.right << "\n- bottom=" << cambound.bottom
+                                                  << "\n- top=" << cambound.top);
     debug_screen("zzd", "Camera pos (previous): " << camera.x << "," << camera.y);
 
-    if (camera.x < cambound.left) camera.x = cambound.left;
-    if (camera.x > cambound.right) camera.x = cambound.right;
-    if (camera.y < cambound.top) camera.y = cambound.top;
-    if (camera.y > cambound.bottom) camera.y = cambound.bottom;
+    if (camera.target_x < cambound.left) camera.target_x = cambound.left;
+    if (camera.target_x > cambound.right) camera.target_x = cambound.right;
+    if (camera.target_y < cambound.top) camera.target_y = cambound.top;
+    if (camera.target_y > cambound.bottom) camera.target_y = cambound.bottom;
 
     debug_screen("zze", "Camera pos (now): " << camera.x << "," << camera.y);
 }
@@ -889,8 +889,12 @@ void GameRenderer::loop() {
     uint64_t now = SDL_GetTicks();
     double dt = lastTick ? (double)(now - lastTick) / 1000.0 : 0.0;
     lastTick = now;
-    camera.update_zoom(dt);
+
+    camera._target_zoom = camera.zoom;
+
     applyCameraBound(dt);
+    camera.update_zoom(dt);
+    camera.update_camera(dt);
 
     compile_used_shaders();
 
@@ -903,8 +907,8 @@ void GameRenderer::loop() {
     // --- transforms ---
     float minDim = (float)std::min(screenwidth, screenheight);
     float pxPerUnit = camera._real_zoom > 0.0 ? minDim / (float)camera._real_zoom : 0.0f;
-    TransformUBO worldT{{camera.x, camera.y},
-        {screenwidth ? pxPerUnit * 2.0f / screenwidth : 0.0f, screenheight ? pxPerUnit * 2.0f / screenheight : 0.0f}};
+    TransformUBO worldT{
+        {camera.x, camera.y}, {screenwidth ? pxPerUnit * 2.0f / screenwidth : 0.0f, screenheight ? pxPerUnit * 2.0f / screenheight : 0.0f}};
     TransformUBO uiT{{0, 0}, {screenwidth ? 2.0f / screenwidth : 0.0f, screenheight ? 2.0f / screenheight : 0.0f}};
     wgpuQueueWriteBuffer(queue, worldUBO, 0, &worldT, sizeof(worldT));
     wgpuQueueWriteBuffer(queue, uiUBO, 0, &uiT, sizeof(uiT));

@@ -74,7 +74,7 @@ fn hash12(p: vec2f) -> f32 {
     }
     shaft = select(0.0, shaft / weight_sum, weight_sum > 0.0);  // normalize instead of raw-summing
 
-    let intensity = 0.9;  // tune to taste — this is now a 0..1 shaft factor, not raw added light
+    let intensity = 0.7;  // tune to taste — this is now a 0..1 shaft factor, not raw added light
 
     return vec4f(base.rgb + vec3f(shaft * intensity), base.a);
 }

@@ -4,6 +4,7 @@
 #include <game/base/entity.hpp>
 #include <game/base/entity_list.hpp>
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <print>
@@ -342,7 +343,7 @@ struct GameClass : Application {
 
         // renderer->compile_used_shaders();
 
-        const auto handle_entity = [&](const ldtk::Entity& entity, const std::string& name) {
+        const auto handle_entity = [&](const Game::PlacedLevel& level, const ldtk::Entity& entity, const std::string& name) {
             if (name == "PlayerStart") {
                 const auto pos = entity.getPosition();
                 level_data.player_starts.push_back({pos.x, -pos.y});
@@ -395,8 +396,8 @@ struct GameClass : Application {
                                         ". (Hint: Don't include \"camera\" in the entity name if it's not a camera bound)");
 
                 auto& bound = level_data.camera_bounds.back();
-                bound.x = pos.x;
-                bound.y = pos.y;
+                bound.x = pos.x + level.offset.x;
+                bound.y = pos.y + level.offset.y;
                 bound.w = size.x;
                 bound.h = size.y;
 
@@ -410,7 +411,7 @@ struct GameClass : Application {
         for (const auto& layer : world_handler->placed_levels[0].level.allLayers()) {
             for (const auto& entity : layer.allEntities()) {
                 const auto name = entity.getName();
-                handle_entity(entity, name);
+                handle_entity(world_handler->placed_levels[0], entity, name);
             }
         }
         if (level_data.player_starts.empty()) {
@@ -458,19 +459,35 @@ struct GameClass : Application {
 
         if (entities.exists(camera_following_entity)) {
             const auto& e = entities[camera_following_entity];
-            renderer->camera.follow_point(e.data.hitbox_center(), dt);
-            renderer->camera_bound = nullptr;
+
+            renderer->camera.follow_point(e.data.hitbox_center());
+
+            //debug_screen("xb", "Player pos: " << e.data.pos.x << ',' << e.data.pos.y);
+
+            size_t smalleset = std::numeric_limits<size_t>::max();
+
             for (const auto& bound : level_data.camera_bounds) {
-                // TODO: Fix camera bounds
+                //debug_screen("xa", "Bound pos: " << bound.x << "," << bound.y << "\n      size: " << bound.w << ',' << bound.h);
+                const bool overlap_x = e.data.pos.x >= bound.x && e.data.pos.x <= bound.x + bound.w;
+                const bool overlap_y = e.data.pos.y <= bound.y && e.data.pos.y >= bound.y - bound.h;
+                const size_t size = bound.w + bound.h;
+
+                if (!(overlap_x && overlap_y)) continue;
+
+                if (size > smalleset) continue;
+
                 renderer->camera_bound = &bound;
+                smalleset = size;
             }
         }
 
-        light_shafts.update(*renderer, -45.0f /* sun angle, wire up however you like */);
-
-        renderer->loop();
         renderer->camera.screenshake -= dt;
         if (renderer->camera.screenshake < 0) renderer->camera.screenshake = 0;
+
+        renderer->loop();
+
+        light_shafts.update(*renderer, -45.0f /* sun angle, wire up however you like */);
+
         SDL_Event event;
         auto& level0 = world_handler->placed_levels[0].level;
         auto& tm = world_handler->all_level_tilemaps[&level0];
