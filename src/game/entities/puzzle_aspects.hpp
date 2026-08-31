@@ -38,6 +38,7 @@ namespace Game {
 
         /// Initializes the colour
         void spawn(const ldtk::Entity* e = nullptr) override {
+            Entity::spawn(e);
             if (!e) return;
 
             data.pos.x = e->getPosition().x;

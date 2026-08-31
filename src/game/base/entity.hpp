@@ -55,20 +55,24 @@ namespace Game {
             ControlData up, down, left, right;
         } colliding_with;
 
-        _nodisc_i double left_edge() const { return pos.x - size.x / 2; }
-        _nodisc_i double right_edge() const { return pos.x + size.x / 2; }
-        _nodisc_i double top_edge() const { return pos.y + size.y; }
-        _nodisc_i double bottom_edge() const { return pos.y; }
-        _nodisc_i vec2_t top_left() const { return {left_edge(), top_edge()}; }
-        _nodisc_i vec2_t top_right() const { return {right_edge(), top_edge()}; }
-        _nodisc_i vec2_t bottom_left() const { return {left_edge(), bottom_edge()}; }
-        _nodisc_i vec2_t bottom_right() const { return {right_edge(), bottom_edge()}; }
+        _nodisc_i double left() const { return pos.x - size.x / 2; }
+        _nodisc_i double right() const { return pos.x + size.x / 2; }
+        _nodisc_i double top() const { return pos.y + size.y; }
+        _nodisc_i double bottom() const { return pos.y; }
+        _nodisc_i vec2_t top_left() const { return {left(), top()}; }
+        _nodisc_i vec2_t top_right() const { return {right(), top()}; }
+        _nodisc_i vec2_t bottom_left() const { return {left(), bottom()}; }
+        _nodisc_i vec2_t bottom_right() const { return {right(), bottom()}; }
         _nodisc_i vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
     };
 
     struct EntityController {
         virtual ~EntityController() = default;
         virtual void update_controls(Entity& own, const EntityList& others, double deltaTime) const {}
+    };
+
+    struct EntitySwitcher {
+        virtual ~EntitySwitcher() = default;
     };
 
     struct Entity {
@@ -144,8 +148,14 @@ namespace Game {
         bool wants_to_despawn = false;
 
         virtual bool does_render() const { return movement.get(); }
-        virtual AnimationFrame get_anim_frame() const { if (!movement) return {}; return movement->anim_frame(this); }
-        virtual Direction get_direction() const { if (!movement) return false; return movement->direction; }
+        virtual AnimationFrame get_anim_frame() const {
+            if (!movement) return {};
+            return movement->anim_frame(this);
+        }
+        virtual Direction get_direction() const {
+            if (!movement) return false;
+            return movement->direction;
+        }
 
         _REGISTERABLE(Entity);
     };

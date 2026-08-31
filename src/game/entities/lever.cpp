@@ -49,12 +49,12 @@ struct Lever : PuzzleObject {
         colliding_with.clear();
 
         for (const auto& [i, e] : others)
-            if (e.get() != this && e->colliding_with(this)) colliding_with.push_back(i);
+            if (e.get() != this && dynamic_cast<Game::EntitySwitcher*>(e.get()) && e->colliding_with(this)) colliding_with.push_back(i);
 
         for (const auto i : colliding_with)
             if (!ranges::contains(prev_colliding_with, i))
                 if ((others[i].data.vel.x > 0) != current_direction) {
-                others[i].pause_time += 0.2;
+                others[i].pause_time += 0;
             current_direction = !current_direction;
             }
     }

@@ -20,8 +20,27 @@ bool Game::Entity::colliding_with(const Entity* other) const {
     const auto& a = data;
     const auto& b = other->data;
 
-    return a.left_edge() < b.right_edge() && a.right_edge() > b.left_edge() && a.bottom_edge() < b.top_edge() &&
-           a.top_edge() > b.bottom_edge();
+    return a.left() < b.right() && a.right() > b.left() && a.bottom() < b.top() &&
+           a.top() > b.bottom();
+
+    debug_screen(this << other, "Entity " << this << " colliding with " << other << ":\nlrtb: " << round(a.left()) << "," << round(a.right())
+                                          << "," << round(a.top()) << "," << round(a.bottom()) << "\nlrtb: " << round(b.left()) << ","
+                                          << round(b.right()) << "," << round(b.top()) << "," << round(b.bottom()));
+
+    auto a_inside_x = [&](double pos) {
+        return pos > b.left() && pos < b.right();
+    };
+    auto a_inside_y = [&](double pos) {
+        return pos > b.top() && pos < b.bottom();
+    };
+
+    bool colliding_left = a_inside_x(a.left()) || a_inside_x(a.right());
+    bool colliding_right = a_inside_y(a.top()) || a_inside_y(a.bottom());
+
+    debug_screen(this << other<< "b", "Colliding left: " << colliding_left << ", right: " << colliding_right);
+
+    if (colliding_left && colliding_right) return true;
+    return false;
 }
 
 constexpr inline void cap(double& x, double max) {
@@ -135,13 +154,13 @@ void Game::Entity::tick_position(double deltaTime, EntityList&) {
 
     bool colliding_left = false, colliding_right = false;
     if (abs(data.vel.x) > vel_snap_distance) {
-        const double edge_before = (data.vel.x > 0.0) ? data.right_edge() : data.left_edge();
+        const double edge_before = (data.vel.x > 0.0) ? data.right() : data.left();
         const double edge_offset = edge_before - data.pos.x;
         const double new_pos_x = data.pos.x + data.vel.x * deltaTime;
         const double edge_after = edge_before + (new_pos_x - data.pos.x);
 
         double hit_boundary;
-        if (sweep_axis(0, edge_before, edge_after, data.top_edge(), data.bottom_edge(), hit_boundary)) {
+        if (sweep_axis(0, edge_before, edge_after, data.top(), data.bottom(), hit_boundary)) {
             bool log = data.pos.x != hit_boundary - edge_offset;
 
             collided = true;
@@ -164,13 +183,13 @@ void Game::Entity::tick_position(double deltaTime, EntityList&) {
 
     bool colliding_up = false, colliding_down = false;
     if (abs(data.vel.y) > vel_snap_distance) {
-        const double edge_before = (data.vel.y > 0.0) ? data.top_edge() : data.bottom_edge();
+        const double edge_before = (data.vel.y > 0.0) ? data.top() : data.bottom();
         const double edge_offset = edge_before - data.pos.y;
         const double new_pos_y = data.pos.y + data.vel.y * deltaTime;
         const double edge_after = edge_before + (new_pos_y - data.pos.y);
 
         double hit_boundary;
-        if (sweep_axis(1, edge_before, edge_after, data.left_edge(), data.right_edge(), hit_boundary)) {
+        if (sweep_axis(1, edge_before, edge_after, data.left(), data.right(), hit_boundary)) {
             data.pos.y = hit_boundary - edge_offset;
 
             collided = true;
@@ -194,12 +213,12 @@ void Game::Entity::tick_position(double deltaTime, EntityList&) {
 
     if (collided) debug_screen(this, "Entity " << this << ": Speed: " << speed);
 
-    //constexpr double threshold = 80;
-    //constexpr double max = 300;
-    //if (speed > max) speed = max;
-    //if (collided && speed > threshold) {
-    //    dynamic_cast<Renderer*>(GetRenderer(false))->camera.screenshake += speed - threshold;
-    //}
+    // constexpr double threshold = 80;
+    // constexpr double max = 300;
+    // if (speed > max) speed = max;
+    // if (collided && speed > threshold) {
+    //     dynamic_cast<Renderer*>(GetRenderer(false))->camera.screenshake += speed - threshold;
+    // }
 }
 
 void Game::ControlData::update(double deltaTime, bool new_pressed) {

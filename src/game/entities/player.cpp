@@ -7,7 +7,7 @@
 #include <game/base/entity.hpp>
 
 namespace Game {
-    struct Player : Entity {
+    struct Player : Entity, EntitySwitcher {
         Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
         void spawn(const ldtk::Entity* e = nullptr) override;
