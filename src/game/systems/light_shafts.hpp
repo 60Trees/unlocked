@@ -12,17 +12,29 @@ struct LightShaftSystem {
     glm::vec2 atlas_world_origin{0, 0};  // bottom-left of coverage, world units
     glm::vec2 atlas_world_size{0, 0};
 
-    struct Pass { float noise_scale, noise_pct, fade_dist, weight; };
+    // --- terrain shadow edge (geometry only, nothing to do with clouds) ---
+    bool hard_shadows = true;      // false = soft penumbra via jittered probes, true = single crisp ray
+    float penumbra_width = 6.0f;    // world units; perpendicular spread of the soft-shadow probes
+    uint32_t soft_probe_count = 5;  // rays averaged for the penumbra when !hard_shadows (odd looks best)
+
+    // --- cloud/atmosphere layering (never affects whether terrain blocks light) ---
+    struct Pass {
+        float noise_scale;   // spatial frequency of this layer (0 = "clear sky" baseline, always fully lit)
+        float coverage_pct;  // 0..1 fraction of this layer that reads as cloud and dims the shaft
+        float reach;         // world units this layer is sampled over along the sun ray (0 = default 128)
+        float weight;        // blend weight against the other passes
+    };
     std::vector<Pass> passes = {
-        {2.0f, 0.20f, 64.0f, 1.0f},
-        {0.5f, 0.50f, 64.0f, 1.0f},
-        {0.0f, 0.00f,  64.0f, 1.0f},
+        {0.4f, 0.50f, 0.0f, 9.0f},
+        {0.9f, 0.50f, 0.0f, 9.0f},
+        {9.5f, 0.50f, 0.0f, 9.0f},
     };
 
     struct ParamsCPU {
         glm::vec4 sun_and_cam;
         glm::vec4 px_viewport_count;
         glm::vec4 atlas_rect;
+        glm::vec4 shadow_flags;   // x=hard_shadows(0/1), y=penumbra_width, z=soft_probe_count, w=reserved
         glm::vec4 pass_data[13];
     } params{};
 
@@ -37,6 +49,85 @@ fn hash12(p: vec2f) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
+// distance to travel from `pos` along `dir` before leaving the atlas AABB.
+// returns 0 if `pos` is already outside the box (nothing to march — open sky).
+fn box_exit_dist(pos: vec2f, dir: vec2f, box_min: vec2f, box_max: vec2f) -> f32 {
+    if (pos.x < box_min.x || pos.x > box_max.x || pos.y < box_min.y || pos.y > box_max.y) {
+        return 0.0;
+    }
+    var t_exit = 1e30;
+    if (dir.x > 0.0) { t_exit = min(t_exit, (box_max.x - pos.x) / dir.x); }
+    else if (dir.x < 0.0) { t_exit = min(t_exit, (box_min.x - pos.x) / dir.x); }
+    if (dir.y > 0.0) { t_exit = min(t_exit, (box_max.y - pos.y) / dir.y); }
+    else if (dir.y < 0.0) { t_exit = min(t_exit, (box_min.y - pos.y) / dir.y); }
+    return max(t_exit, 0.0);
+}
+
+// single ray: 1.0 if it reaches the level edge with no solid tile in the way, else 0.0.
+// first hit blocks and stops — this is a real cumulative occlusion test, not a per-sample average.
+fn probe_visible(origin: vec2f, march_dir: vec2f, atlas_origin: vec2f, atlas_size: vec2f) -> f32 {
+    let box_min = atlas_origin;
+    let box_max = atlas_origin + atlas_size;
+    let max_dist = box_exit_dist(origin, march_dir, box_min, box_max);
+    if (max_dist <= 0.0) { return 1.0; }  // starting outside the level entirely -> open sky
+    let steps = clamp(u32(max_dist / 4.0), 8u, 48u);  // tune 4.0 to your tile size
+    for (var s: u32 = 0u; s < steps; s = s + 1u) {
+        let t = (f32(s) + 0.5) / f32(steps);
+        let sample_pos = origin + march_dir * (t * max_dist);
+        var uv = (sample_pos - atlas_origin) / atlas_size;
+        uv.y = 1.0 - uv.y;
+        let in_bounds = all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0));
+        if (!in_bounds) { break; }  // exited the level -> nothing left to hit
+        if (textureSample(extraTex0, prevSamp, uv).r > 0.5) { return 0.0; }
+    }
+    return 1.0;
+}
+
+// terrain shadow term. hard = one ray. soft = several rays offset perpendicular to the
+// sun direction and averaged, which is what actually produces a penumbra.
+fn sun_visibility(world_pos: vec2f, march_dir: vec2f, atlas_origin: vec2f, atlas_size: vec2f,
+                   hard: bool, penumbra_width: f32, probe_count: u32) -> f32 {
+    if (hard || probe_count <= 1u) {
+        return probe_visible(world_pos, march_dir, atlas_origin, atlas_size);
+    }
+    let perp = vec2f(-march_dir.y, march_dir.x);
+    var total: f32 = 0.0;
+    for (var i: u32 = 0u; i < probe_count; i = i + 1u) {
+        let fi = f32(i) / f32(probe_count - 1u) - 0.5;  // -0.5 .. 0.5 across the probes
+        let origin = world_pos + perp * (fi * penumbra_width);
+        total += probe_visible(origin, march_dir, atlas_origin, atlas_size);
+    }
+    return total / f32(probe_count);
+}
+
+// atmospheric cloud layering: a pure brightness texture, sampled along the sun ray.
+// completely independent of terrain — never treated as occlusion, only ever blended.
+// a scale-0 pass is a "clear sky" floor so full cloud cover can't fully black out the shaft.
+fn cloud_density(world_pos: vec2f, march_dir: vec2f, pass_count: u32) -> f32 {
+    let steps = 16u;
+    var density: f32 = 0.0;
+    var weight_sum: f32 = 0.0;
+    for (var p: u32 = 0u; p < pass_count; p = p + 1u) {
+        let cfg = params[4u + p];  // x=noise_scale, y=coverage_pct, z=reach, w=weight
+        if (cfg.x <= 0.0) {
+            density += cfg.w;
+            weight_sum += cfg.w;
+            continue;
+        }
+        let reach = select(128.0, cfg.z, cfg.z > 0.0);  // tune 128.0 to your world scale
+        var acc: f32 = 0.0;
+        for (var s: u32 = 0u; s < steps; s = s + 1u) {
+            let t = (f32(s) + 0.5) / f32(steps);
+            let sample_pos = world_pos + march_dir * (t * reach);
+            let n = hash12(sample_pos * cfg.x);
+            acc += select(0.0, 1.0, n >= cfg.y);  // n < coverage -> in-cloud -> blocked (same sense as before)
+        }
+        density += cfg.w * (acc / f32(steps));
+        weight_sum += cfg.w;
+    }
+    return select(1.0, density / weight_sum, weight_sum > 0.0);
+}
+
 @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
     let base = textureSample(prevTex, prevSamp, in.uv);
     let sun_dir = params[0].xy;
@@ -46,37 +137,21 @@ fn hash12(p: vec2f) -> f32 {
     let pass_count = u32(params[1].w);
     let atlas_origin = params[2].xy;
     let atlas_size = params[2].zw;
+    let hard_shadows = params[3].x > 0.5;
+    let penumbra_width = params[3].y;
+    let probe_count = max(u32(params[3].z), 1u);
 
     let ndc = in.uv * 2.0 - vec2f(1.0);
     let world_pos = cam_pos + vec2f(ndc.x, -ndc.y) * (viewport / (2.0 * px_per_unit));
+    let march_dir = -sun_dir;  // toward the sun — same convention as before
 
-    var shaft: f32 = 0.0;
-    var weight_sum: f32 = 0.0;
-    let steps: u32 = 24u;
-    for (var p: u32 = 0u; p < pass_count; p = p + 1u) {
-        let cfg = params[3u + p];
-        var acc: f32 = 0.0;
-        for (var s: u32 = 0u; s < steps; s = s + 1u) {
-            let t = (f32(s) + 0.5) / f32(steps);
-            let dist = select(t * 9999.0, t * cfg.z, cfg.z > 0.0);
-            let sample_pos = world_pos - sun_dir * dist;
-            if (cfg.x > 0.0 && hash12(sample_pos * cfg.x) < cfg.y) { continue; }
-            var uv = (sample_pos - atlas_origin) / atlas_size;
-            uv.y = 1.0 - uv.y;  // atlas_origin is the bottom edge, texture row 0 is the level's top
-            let in_bounds = all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0));
-            // white (1.0) = solid = blocked, so this is already "occlusion", no inversion needed
-            let occluded = select(0.0, textureSample(extraTex0, prevSamp, uv).r, in_bounds);
-            let falloff = select(1.0, 1.0 - t, cfg.z > 0.0);
-            acc += (1.0 - occluded) * falloff;
-        }
-        shaft += cfg.w * (acc / f32(steps));
-        weight_sum += cfg.w;
-    }
-    shaft = select(0.0, shaft / weight_sum, weight_sum > 0.0);  // normalize instead of raw-summing
+    let visibility = sun_visibility(world_pos, march_dir, atlas_origin, atlas_size, hard_shadows, penumbra_width, probe_count);
+    let clouds = cloud_density(world_pos, march_dir, pass_count);
+    let shaft = visibility * clouds;
 
-    let intensity = 0.7;  // tune to taste — this is now a 0..1 shaft factor, not raw added light
-
-    return vec4f(base.rgb + vec3f(shaft * intensity), base.a);
+    let shaft_colour = vec3f(0.96, 0.94, 0.58);
+    let intensity = 0.3;
+    return vec4f(base.rgb + shaft_colour * (shaft * intensity), base.a);
 }
 )";
 //*/
@@ -121,7 +196,8 @@ fn hash12(p: vec2f) -> f32 {
         params.sun_and_cam = {std::cos(a), std::sin(a), r.camera.x, r.camera.y};
         params.px_viewport_count = {pxPerUnit, (float)vp.x, (float)vp.y, (float)passes.size()};
         params.atlas_rect = {atlas_world_origin.x, atlas_world_origin.y, atlas_world_size.x, atlas_world_size.y};
+        params.shadow_flags = {hard_shadows ? 1.0f : 0.0f, penumbra_width, (float)soft_probe_count, 0.0f};
         for (size_t i = 0; i < passes.size() && i < 13; ++i)
-            params.pass_data[i] = {passes[i].noise_scale, passes[i].noise_pct, passes[i].fade_dist, passes[i].weight};
+            params.pass_data[i] = {passes[i].noise_scale, passes[i].coverage_pct, passes[i].reach, passes[i].weight};
     }
 };

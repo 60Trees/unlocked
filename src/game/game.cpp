@@ -481,12 +481,12 @@ struct GameClass : Application {
             }
         }
 
-        renderer->camera.screenshake -= dt;
+        renderer->camera.screenshake -= renderer->camera.screenshake * dt;
         if (renderer->camera.screenshake < 0) renderer->camera.screenshake = 0;
 
-        renderer->loop();
-
         light_shafts.update(*renderer, -45.0f /* sun angle, wire up however you like */);
+
+        renderer->loop();
 
         SDL_Event event;
         auto& level0 = world_handler->placed_levels[0].level;

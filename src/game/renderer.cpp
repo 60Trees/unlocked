@@ -268,8 +268,8 @@ void GameRenderer::applyCameraBound(double dt) {
         return min(minbound, screenratio * b.w);
     }();
 
-    debug_screen("zyz", "Screen size: " << screenwidth << "," << screenheight);
-    debug_screen("zza", "Camera zoom: " << camera._target_zoom << " (max=" << maxzoom << ")");
+    // debug_screen("zyz", "Screen size: " << screenwidth << "," << screenheight);
+    // debug_screen("zza", "Camera zoom: " << camera._target_zoom << " (max=" << maxzoom << ")");
 
     if (camera._target_zoom > maxzoom) camera._target_zoom = maxzoom;
     if (b.lock_zoom) camera._target_zoom = maxzoom;
@@ -277,7 +277,7 @@ void GameRenderer::applyCameraBound(double dt) {
     // how many screen pixels = game pixel
     const auto rawzoom = minscreen / camera._target_zoom;
 
-    debug_screen("zzb", "- Raw zoom: " << rawzoom);
+    // debug_screen("zzb", "- Raw zoom: " << rawzoom);
 
     // how many game pixels you see in either direction
     vec2 pixelsight{(float)screenwidth / 2 / rawzoom, (float)screenheight / 2 / rawzoom};
@@ -288,9 +288,9 @@ void GameRenderer::applyCameraBound(double dt) {
         double left, right, bottom, top;
     } cambound = {b.x + pixelsight.x, b.x - pixelsight.x + b.w, b.y + pixelsight.y - b.h, b.y - pixelsight.y};
 
-    debug_screen("zzc", "Camera bound: \n- left=" << cambound.left << "\n- right=" << cambound.right << "\n- bottom=" << cambound.bottom
-                                                  << "\n- top=" << cambound.top);
-    debug_screen("zzd", "Camera pos (previous): " << camera.x << "," << camera.y);
+    // debug_screen("zzc", "Camera bound: \n- left=" << cambound.left << "\n- right=" << cambound.right << "\n- bottom=" << cambound.bottom
+    //                                               << "\n- top=" << cambound.top);
+    // debug_screen("zzd", "Camera pos (previous): " << camera.x << "," << camera.y);
 
     if (camera.target_x < cambound.left) camera.target_x = cambound.left;
     if (camera.target_x > cambound.right) camera.target_x = cambound.right;
@@ -895,6 +895,51 @@ void GameRenderer::loop() {
     applyCameraBound(dt);
     camera.update_zoom(dt);
     camera.update_camera(dt);
+
+    int screen_offset_x = 0;
+    int screen_offset_y = 0;
+
+    {
+        uint screen_shake_pixels = mth::min(screenwidth, screenheight) / 400;
+
+        if (camera.screenshake > 0.0f && screen_shake_pixels > 0) {
+            // scary black magic hashing function >.< im scarreddd
+
+            uint64_t h = now;
+            h ^= h >> 30;
+            h *= 0xbf58476d1ce4e5b9ULL;
+            h ^= h >> 27;
+            h *= 0x94d049bb133111ebULL;
+            h ^= h >> 31;
+
+            uint64_t hx = h;
+            uint64_t hy = h ^ 0x9e3779b97f4a7c15ULL;
+
+            hx ^= hx >> 30;
+            hx *= 0xbf58476d1ce4e5b9ULL;
+            hx ^= hx >> 27;
+            hx *= 0x94d049bb133111ebULL;
+            hx ^= hx >> 31;
+
+            hy ^= hy >> 30;
+            hy *= 0xbf58476d1ce4e5b9ULL;
+            hy ^= hy >> 27;
+            hy *= 0x94d049bb133111ebULL;
+            hy ^= hy >> 31;
+
+            int shake = (int)(camera.screenshake * screen_shake_pixels);
+
+            const auto rawzoom = mth::min(screenwidth, screenheight) / camera._target_zoom;
+
+            screen_offset_x = (int)(hx % (2 * shake + 1)) - shake;
+            screen_offset_y = (int)(hy % (2 * shake + 1)) - shake;
+        }
+    }
+
+    camera.x += screen_offset_x;
+    camera.y += screen_offset_y;
+
+    // camera.screenshake
 
     compile_used_shaders();
 
