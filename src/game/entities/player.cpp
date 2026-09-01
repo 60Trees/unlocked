@@ -1,6 +1,7 @@
 #include <base/renderer.hpp>
 #include <base/fps_counter.hpp>
 #include <cmath>
+#include "base/app.hpp"
 #include "game/anim.hpp"
 #include "game/base/entity_movements.hpp"
 #include "utils.hpp"
@@ -10,7 +11,7 @@ namespace Game {
     struct Player : Entity, EntitySwitcher {
         Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
-        void spawn(const ldtk::Entity* e = nullptr) override;
+        void spawn(Base::Application&, const ldtk::Entity* e = nullptr) override;
     };
 }  // namespace Game
 
@@ -447,8 +448,8 @@ Hitbox Player::get_defaults() const {
     };
 }
 
-void Player::spawn(const ldtk::Entity* e) {
-    Entity::spawn(e);
+void Player::spawn(Base::Application& app, const ldtk::Entity* e) {
+    Entity::spawn(app, e);
     const auto add_ability = [&](EntityAbility* ability) {
         current_abilities.push_back(unique_ptr<EntityAbility>(dynamic_cast<EntityAbility*>(ability)));
     };

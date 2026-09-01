@@ -6,6 +6,7 @@
 
 #include <game/base/entity.hpp>
 #include "LDtkLoader/DataTypes.hpp"
+#include "base/app.hpp"
 #include <map>
 #include <utils.hpp>
 
@@ -25,7 +26,7 @@ namespace Game {
         // unions are cool. (:
     };
 
-    struct PuzzleState : Base::BaseClass {
+    struct PuzzleState : Base::AppModule {
         void init() override {}
         void loop() override {}
         void quit() override {}
@@ -37,8 +38,10 @@ namespace Game {
         std::string name() const override { return "PuzzleObject"; }
 
         /// Initializes the colour
-        void spawn(const ldtk::Entity* e = nullptr) override {
-            Entity::spawn(e);
+        void spawn(Base::Application& app, const ldtk::Entity* e = nullptr) override {
+            app.ensure_class_added<PuzzleState>([]{return new PuzzleState();});
+
+            Entity::spawn(app, e);
             if (!e) return;
 
             data.pos.x = e->getPosition().x;
@@ -48,7 +51,11 @@ namespace Game {
             const auto& colourstruct = field.value_or(ldtk::Color{0, 0, 0, 255});
             colour.split = {colourstruct.r, colourstruct.g, colourstruct.b, 255};
         };
-        void tick(double, EntityList&) override { colour.set_opaque(); }
+
+        void tick(Base::Application&, double) override {
+            colour.set_opaque();
+            // for (auto& Base)
+        }
 
         virtual bool get_state() const = 0;
 

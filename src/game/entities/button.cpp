@@ -1,5 +1,6 @@
 #include <game/base/entity.hpp>
 #include <utils.hpp>
+#include "base/app.hpp"
 #include "puzzle_aspects.hpp"
 
 using namespace Game;
@@ -14,8 +15,8 @@ struct Activatable : PuzzleObject {
 
     Hitbox get_defaults() const override { return {{16, 16}}; };
     std::string name() const override { return "button"; }
-    void spawn(const ldtk::Entity* e) override {
-        PuzzleObject::spawn(e);
+    void spawn(Base::Application& app, const ldtk::Entity* e) override {
+        PuzzleObject::spawn(app, e);
         if (!e) return;
 
         const auto field = e->getField<ldtk::FieldType::Bool>("DefaultValue");
@@ -23,7 +24,7 @@ struct Activatable : PuzzleObject {
         active = default_val;
     };
 
-    void tick(double deltaTime, EntityList& oth) override { PuzzleObject::tick(deltaTime, oth); }
+    void tick(Base::Application& app, double deltaTime) override { PuzzleObject::tick(app, deltaTime); }
 };
 
 struct Push : Activatable {};

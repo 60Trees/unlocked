@@ -4,6 +4,7 @@
 #include <base/base.hpp>
 #include <glm/vec2.hpp>
 #include <memory>
+#include "base/app.hpp"
 #include "entity_movements.hpp"
 #include "game/anim.hpp"
 #include <LDtkLoader/Entity.hpp>
@@ -128,11 +129,11 @@ namespace Game {
             double speed;
         };
 
-        virtual void spawn(const ldtk::Entity* e = nullptr) { data = get_defaults(); }
+        virtual void spawn(Base::Application& app, const ldtk::Entity* e = nullptr) ;
 
-        virtual void tick_all(double deltaTime, EntityList& others);
-        virtual void tick(double deltaTime, EntityList& others) {}
-        virtual void tick_position(double deltaTime, EntityList& others);
+        virtual void tick_all(Base::Application& app, double deltaTime);
+        virtual void tick(Base::Application& app, double deltaTime) {}
+        virtual void tick_position(Base::Application& app, double deltaTime);
         virtual void despawn() {}
 
         Duration pause_time = 0.0f;

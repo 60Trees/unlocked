@@ -8,6 +8,7 @@
 #include <game/base/entity.hpp>
 #include <game/base/entity_list.hpp>
 #include <utils.hpp>
+#include "base/app.hpp"
 #include "game/anim.hpp"
 #include "puzzle_aspects.hpp"
 
@@ -23,8 +24,8 @@ struct Lever : PuzzleObject {
     Hitbox get_defaults() const override { return {{12, 12}}; };
     std::string name() const override { return "switch"; }
 
-    void spawn(const ldtk::Entity* e) override {
-        PuzzleObject::spawn(e);
+    void spawn(Base::Application& app, const ldtk::Entity* e) override {
+        PuzzleObject::spawn(app, e);
         if (!e) return;
 
         const auto dir = e->getField<ldtk::FieldType::Enum>("Direction");
@@ -42,19 +43,19 @@ struct Lever : PuzzleObject {
 
     vector<size_t> colliding_with;
 
-    void tick(double dt, EntityList& others) override {
-        PuzzleObject::tick(dt, others);
+    void tick(Base::Application& app, double dt) override {
+        PuzzleObject::tick(app, dt);
 
         auto prev_colliding_with = std::move(colliding_with);
         colliding_with.clear();
 
-        for (const auto& [i, e] : others)
+        for (const auto& [i, e] : app.get<EntityList>())
             if (e.get() != this && dynamic_cast<Game::EntitySwitcher*>(e.get()) && e->colliding_with(this)) colliding_with.push_back(i);
 
         for (const auto i : colliding_with)
             if (!ranges::contains(prev_colliding_with, i))
-                if ((others[i].data.vel.x > 0) != current_direction) {
-                others[i].pause_time += 0;
+                if ((app.get<EntityList>()[i].data.vel.x > 0) != current_direction) {
+                app.get<EntityList>()[i].pause_time += 0;
             current_direction = !current_direction;
             }
     }

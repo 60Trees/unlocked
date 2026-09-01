@@ -15,8 +15,16 @@
 #include <utils.hpp>
 
 GETTER_DEFINITION(Base::BaseClass, GetRenderer);
+#define GETTER_CLASS_DEFINITION(type)                     \
+    inline static std::unique_ptr<type> get() {           \
+        std::unique_ptr<type> retval = nullptr;           \
+        retval.reset(dynamic_cast<type*>(::Get##type())); \
+        return retval;                                    \
+    }
+
 namespace Base {
     struct Renderer : BaseClass {
+        GETTER_CLASS_DEFINITION(Renderer);
         // <AI>
         enum class PixelFormat : uint8_t { R8Unorm, RGBA8Unorm };
 
@@ -164,9 +172,9 @@ namespace Base {
                 using namespace std;
 
                 if (isinf(x) || isnan(x) || isinf(y) || isnan(y)) {
-                x = target_x;
-                y = target_y;
-            }
+                    x = target_x;
+                    y = target_y;
+                }
             }
 
             double zoom = 160, _target_zoom = 0, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
@@ -232,17 +240,10 @@ namespace Base {
             inline void clear() { raw.clear(); }
         };
 
+        /// These will be ordered first -> frontmost
         std::function<RenderQueue&()> renderqueue = [] -> RenderQueue& {
             static RenderQueue render_queue{};
             return render_queue;
-        };
-
-        /// These will be ordered first -> frontmost
-
-        inline static std::unique_ptr<Renderer> get() {
-            std::unique_ptr<Renderer> retval = nullptr;
-            retval.reset(dynamic_cast<Renderer*>(GetRenderer()));
-            return retval;
         };
 
         struct ColouredRectDescriptor {

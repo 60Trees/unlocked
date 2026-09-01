@@ -12,10 +12,14 @@ namespace Base {
         virtual void loop() = 0;
         virtual void quit() = 0;
 
+        virtual bool is_null() { return false; }
+
         inline void check_running(BaseClass* oth) {
             if (!oth->running) running = false;
         }
 
         friend int ::main();
+
+        static BaseClass&& get_null();
     };
 }  // namespace Base

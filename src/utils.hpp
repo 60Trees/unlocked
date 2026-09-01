@@ -185,3 +185,11 @@ extern "C" void add_debug_stream(const char* entry, size_t entrylen, const char*
 #define runtime_warn(msg) runtime_warn_count(msg, 1)
 
 void handle_loop(std::function<bool()> loop, std::function<void()> quit);
+
+std::string uint8_to_hex_string(const uint8_t* v, const size_t s);
+
+template <typename T>
+inline std::string number_to_hex_string(const T& num) {
+    return uint8_to_hex_string((uint8_t*)(&num), sizeof(T));
+}
+

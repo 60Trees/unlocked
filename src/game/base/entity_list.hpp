@@ -1,8 +1,13 @@
 #pragma once
 #include "entity.hpp"
+#include <LDtkLoader/Entity.hpp>
 
 namespace Game {
-    struct EntityList {
+    struct EntityList : Base::AppModule {
+        void init() override { assert(parent); }
+        void loop() override {}
+        void quit() override {}
+
         using index_t = size_t;
         constexpr static index_t null_index = std::numeric_limits<index_t>::max();
         [[nodiscard]] index_t get_id_from(const Entity* other) const {
@@ -24,7 +29,7 @@ namespace Game {
             if (!Entity::contains(std::string(entity_name))) return null_index;
             const auto id = get_empty_index();
             entities[id] = std::unique_ptr<Entity>{Entity::make_new(std::string{entity_name})};
-            entities[id]->spawn(e);
+            entities[id]->spawn(*parent, e);
             return id;
         }
         [[nodiscard]] bool exists(const index_t entity_index) const {

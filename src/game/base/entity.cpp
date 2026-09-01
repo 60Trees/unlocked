@@ -1,4 +1,5 @@
 #include "entity.hpp"
+#include "entity_list.hpp"
 #include <cmath>
 #include <game/base/world_handler.hpp>
 
@@ -6,41 +7,24 @@ using namespace std;
 using namespace Base;
 
 Game::Entity::vec2_t Game::Entity::get_gravity() { return {0.0, -700}; };
-
-void Game::Entity::tick_all(double deltaTime, EntityList& oth) {
+void Game::Entity::spawn(Base::Application& app, const ldtk::Entity* e) {
+    app.ensure_class_added<EntityList>([] { return new EntityList(); });
+    data = get_defaults();
+}
+void Game::Entity::tick_all(Base::Application& app, double deltaTime) {
     if (pause_time > 0) {
         pause_time -= deltaTime;
         return;
     }
-    tick_position(deltaTime, oth);
-    tick(deltaTime, oth);
+    tick_position(app, deltaTime);
+    tick(app, deltaTime);
 }
 
 bool Game::Entity::colliding_with(const Entity* other) const {
     const auto& a = data;
     const auto& b = other->data;
 
-    return a.left() < b.right() && a.right() > b.left() && a.bottom() < b.top() &&
-           a.top() > b.bottom();
-
-    debug_screen(this << other, "Entity " << this << " colliding with " << other << ":\nlrtb: " << round(a.left()) << "," << round(a.right())
-                                          << "," << round(a.top()) << "," << round(a.bottom()) << "\nlrtb: " << round(b.left()) << ","
-                                          << round(b.right()) << "," << round(b.top()) << "," << round(b.bottom()));
-
-    auto a_inside_x = [&](double pos) {
-        return pos > b.left() && pos < b.right();
-    };
-    auto a_inside_y = [&](double pos) {
-        return pos > b.top() && pos < b.bottom();
-    };
-
-    bool colliding_left = a_inside_x(a.left()) || a_inside_x(a.right());
-    bool colliding_right = a_inside_y(a.top()) || a_inside_y(a.bottom());
-
-    debug_screen(this << other<< "b", "Colliding left: " << colliding_left << ", right: " << colliding_right);
-
-    if (colliding_left && colliding_right) return true;
-    return false;
+    return a.left() < b.right() && a.right() > b.left() && a.bottom() < b.top() && a.top() > b.bottom();
 }
 
 constexpr inline void cap(double& x, double max) {
@@ -48,7 +32,7 @@ constexpr inline void cap(double& x, double max) {
     if (x < -max) x = -max;
 }
 
-void Game::Entity::tick_position(double deltaTime, EntityList&) {
+void Game::Entity::tick_position(Base::Application& app, double deltaTime) {
     constexpr bool X_AXIS = 0, Y_AXIS = 1;
     constexpr bool LEFT = 0, RIGHT = 1;
 

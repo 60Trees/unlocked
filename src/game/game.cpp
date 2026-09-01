@@ -39,9 +39,11 @@ using VertexArray = Renderer::VertexArray;
 struct GameClass : Application {
     LightShaftSystem light_shafts;
 
-    unique_ptr<PuzzleState> puzzle_state{};
+    Game::EntityList& entities = [&] -> Game::EntityList& {
+        this->ensure_class_added<Game::EntityList>([] { return new Game::EntityList(); });
+        return this->get<Game::EntityList>();
+    }();
 
-    EntityList entities;
     EntityList::index_t camera_following_entity = EntityList::null_index;
 
     struct KeyboardControls {
@@ -312,6 +314,12 @@ struct GameClass : Application {
         renderer->init();
         fps_counter->init();
 
+        ensure_class_added<EntityList>([] { return new EntityList(); });
+
+        EntityList& entities = get<EntityList>();
+
+        for (auto& baseclass : classes) baseclass->init();
+
         {
             const span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
             world_handler->loadFromMemory(file);
@@ -427,7 +435,6 @@ struct GameClass : Application {
             entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), 1.0 / 60.0);
         }
     }
-
     struct {
         float up, down, left, right;
         void do_inputs(const SDL_Keycode keycode, float speed) {
@@ -450,10 +457,19 @@ struct GameClass : Application {
 
     void loop() override {
         fps_counter->loop();
+        for (auto& baseclass : classes) baseclass->loop();
+
+        EntityList& entities = get<EntityList>();
+
         static bool slow_motion = false;
         const double dt = fps_counter->deltaTime * (slow_motion ? dt_multiplier() : 1);
         ASSUME(dt != NAN);
         ASSUME(dt > 0);
+
+        // for (const auto [colour, active] : puzzle_state->active_colours) {
+        // }
+
+        // debug_screen("colours", "Game colours: " << puzzle_state->active_colours);
 
         const auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
 
@@ -462,12 +478,12 @@ struct GameClass : Application {
 
             renderer->camera.follow_point(e.data.hitbox_center());
 
-            //debug_screen("xb", "Player pos: " << e.data.pos.x << ',' << e.data.pos.y);
+            // debug_screen("xb", "Player pos: " << e.data.pos.x << ',' << e.data.pos.y);
 
             size_t smalleset = std::numeric_limits<size_t>::max();
 
             for (const auto& bound : level_data.camera_bounds) {
-                //debug_screen("xa", "Bound pos: " << bound.x << "," << bound.y << "\n      size: " << bound.w << ',' << bound.h);
+                // debug_screen("xa", "Bound pos: " << bound.x << "," << bound.y << "\n      size: " << bound.w << ',' << bound.h);
                 const bool overlap_x = e.data.pos.x >= bound.x && e.data.pos.x <= bound.x + bound.w;
                 const bool overlap_y = e.data.pos.y <= bound.y && e.data.pos.y >= bound.y - bound.h;
                 const size_t size = bound.w + bound.h;
@@ -554,7 +570,7 @@ struct GameClass : Application {
                 continue;
             }
             entity->controller->update_controls(*entity, entities, dt);
-            entity->tick_all(dt, entities);
+            entity->tick_all(*this, dt);
             if (entity->wants_to_despawn) should_clean_entities = true;
 
             if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);
@@ -568,6 +584,7 @@ struct GameClass : Application {
     }
 
     void quit() override {
+        for (auto& baseclass : classes) baseclass->quit();
         fps_counter->quit();
         renderer->quit();
     }
