@@ -7,7 +7,10 @@
 using namespace std;
 using namespace Base;
 
-void Game::Entity::render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const {
+void Game::Entity::render(Base::Application& app, Base::Renderer::VertexLayer& layer) const {
+    auto& r = app.get<Base::Renderer>();
+    const double deltaTime = app.get<Base::FpsCounter>().deltaTime;
+
     if (!does_render()) return;
 
 #ifdef SOLITAIRE_MODE
@@ -27,7 +30,7 @@ void Game::Entity::render(Base::Renderer& r, Base::Renderer::VertexLayer& layer,
 
     if (!solitaire_mode) layer.vertices.clear();
 
-    const AnimationFrame anim_frame = get_anim_frame();
+    const AnimationFrame anim_frame = get_anim_frame(app);
 
     const glm::vec<2, uint> bottom_middle = anim_frame.bottom_middle.value_or(glm::vec<2, uint>{anim_frame.size.x / 2, 0});
 

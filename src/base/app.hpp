@@ -31,8 +31,8 @@ namespace Base {
 
         public:
         template <typename T>
-            requires std::derived_from<T, AppModule>
-        T& get() {
+            requires std::derived_from<T, BaseClass>
+        [[nodiscard]] T& get() {
             if constexpr (std::is_same_v<T, FpsCounter>) {
                 return *fps_counter;
             } else if constexpr (std::is_same_v<T, Renderer>) {
@@ -47,8 +47,8 @@ namespace Base {
         }
 
         template <typename T>
-            requires std::derived_from<T, AppModule>
-        const T& get() const {
+            requires std::derived_from<T, BaseClass>
+        [[nodiscard]] const T& get() const {
             if constexpr (std::is_same_v<T, FpsCounter>) {
                 return *fps_counter;
             } else if constexpr (std::is_same_v<T, Renderer>) {
@@ -63,7 +63,7 @@ namespace Base {
         }
 
         template <typename T>
-            requires std::derived_from<T, AppModule>
+            requires std::derived_from<T, BaseClass>
         void ensure_class_added(T* (*factory)()) {
             if (has_class<T>()) return;
 
@@ -76,8 +76,8 @@ namespace Base {
         }
 
         template <typename T>
-            requires std::derived_from<T, AppModule>
-        bool has_class() const {
+            requires std::derived_from<T, BaseClass>
+        [[nodiscard]] bool has_class() const {
             if constexpr (std::is_same_v<T, FpsCounter> || std::is_same_v<T, Renderer>) {
                 return true;
             }

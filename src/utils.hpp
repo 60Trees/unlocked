@@ -189,7 +189,7 @@ void handle_loop(std::function<bool()> loop, std::function<void()> quit);
 std::string uint8_to_hex_string(const uint8_t* v, const size_t s);
 
 template <typename T>
-inline std::string number_to_hex_string(const T& num) {
-    return uint8_to_hex_string((uint8_t*)(&num), sizeof(T));
+inline std::string number_to_hex_string(const T& num, const size_t bytes_to_print = sizeof(T)) {
+    return uint8_to_hex_string((uint8_t*)(&num), bytes_to_print);
 }
 

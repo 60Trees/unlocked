@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <map>
+#include "base/app.hpp"
 #include "glm/detail/qualifier.hpp"
 namespace Game {
     struct WorldHandler;
@@ -39,7 +40,7 @@ namespace Game {
     };
 
     struct PlacedLevel;
-    struct WorldHandler {
+    struct WorldHandler : Base::AppModule {
         virtual ~WorldHandler() = default;
         ldtk::Project main_world;
         virtual void loadFromMemory(std::span<const unsigned char> bytes) = 0;

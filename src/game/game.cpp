@@ -300,7 +300,10 @@ struct GameClass : Application {
     vector<string> worldnames{};
     map<string, vector<string>> levelnames{};
 
-    unique_ptr<Game::WorldHandler> world_handler{GetWorldHandler()};
+    WorldHandler& world_handler = [&] -> WorldHandler& {
+        this->ensure_class_added<WorldHandler>([] { return GetWorldHandler(); });
+        return this->get<WorldHandler>();
+    }();
 
     struct LevelData : PlacedLevelData {
         vector<glm::vec<2, double>> player_starts;
@@ -314,6 +317,8 @@ struct GameClass : Application {
         renderer->init();
         fps_counter->init();
 
+        fps_counter->deltaTime = 1.0 / 60.0;
+
         ensure_class_added<EntityList>([] { return new EntityList(); });
 
         EntityList& entities = get<EntityList>();
@@ -322,26 +327,26 @@ struct GameClass : Application {
 
         {
             const span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
-            world_handler->loadFromMemory(file);
+            world_handler.loadFromMemory(file);
             print("Loaded world\n");
         }
 
         {
-            const auto c = world_handler->main_world.allWorlds()[0].getBgColor();
+            const auto c = world_handler.main_world.allWorlds()[0].getBgColor();
             debug_screen("bgcolour", "Background colour: " << +c.r << "," << +c.g << "," << +c.b);
             // set_solid_background(c.r, c.g, c.b);
             set_solid_background(0, 0, 0);
         }
 
-        world_handler->uploadAllTilesets(*renderer);
+        world_handler.uploadAllTilesets(*renderer);
 
-        world_handler->placed_levels.push_back(PlacedLevel{world_handler->getlevel(0, 0), {0, 0}, make_shared<LevelData>(),
+        world_handler.placed_levels.push_back(PlacedLevel{world_handler.getlevel(0, 0), {0, 0}, make_shared<LevelData>(),
             {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}}});
-        world_handler->renderDirtyLevels(*leveltris);
-        light_shafts.bake_level(*renderer, world_handler->all_level_tilemaps[&world_handler->placed_levels[0].level]);
+        world_handler.renderDirtyLevels(*leveltris);
+        light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
         light_shafts.register_post_effect(*renderer);
 
-        auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
+        auto& level_data = *dynamic_cast<LevelData*>(world_handler.placed_levels[0].usrdata.get());
 
         update_renderer_layers();
 
@@ -416,10 +421,10 @@ struct GameClass : Application {
         };
 
         players.push_back(entities.spawn_entity("player"));
-        for (const auto& layer : world_handler->placed_levels[0].level.allLayers()) {
+        for (const auto& layer : world_handler.placed_levels[0].level.allLayers()) {
             for (const auto& entity : layer.allEntities()) {
                 const auto name = entity.getName();
-                handle_entity(world_handler->placed_levels[0], entity, name);
+                handle_entity(world_handler.placed_levels[0], entity, name);
             }
         }
         if (level_data.player_starts.empty()) {
@@ -432,7 +437,7 @@ struct GameClass : Application {
         size_t tris_i = 0;
         for (const auto& [entity_id, entity] : entities) {
             entitytrisindex.add_entity(entity_id);
-            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), 1.0 / 60.0);
+            entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
         }
     }
     struct {
@@ -471,7 +476,7 @@ struct GameClass : Application {
 
         // debug_screen("colours", "Game colours: " << puzzle_state->active_colours);
 
-        const auto& level_data = *dynamic_cast<LevelData*>(world_handler->placed_levels[0].usrdata.get());
+        const auto& level_data = *dynamic_cast<LevelData*>(world_handler.placed_levels[0].usrdata.get());
 
         if (entities.exists(camera_following_entity)) {
             const auto& e = entities[camera_following_entity];
@@ -500,17 +505,20 @@ struct GameClass : Application {
         renderer->camera.screenshake -= renderer->camera.screenshake * dt;
         if (renderer->camera.screenshake < 0) renderer->camera.screenshake = 0;
 
-        light_shafts.update(*renderer, -45.0f /* sun angle, wire up however you like */);
+        light_shafts.update(*renderer, -48.0f /* sun angle, wire up however you like */);
 
         renderer->loop();
 
         SDL_Event event;
-        auto& level0 = world_handler->placed_levels[0].level;
-        auto& tm = world_handler->all_level_tilemaps[&level0];
+        auto& level0 = world_handler.placed_levels[0].level;
+        auto& tm = world_handler.all_level_tilemaps[&level0];
 
         const auto playerpos = entities[players[0]].data.hitbox_center();
         const int ix = (int)std::floor((playerpos.x - tm.offset.x) / tm.scale);
         const int iy = (int)std::floor(-(playerpos.y + tm.offset.y - 1) / tm.scale);
+
+        debug_screen(this << "x", "Player solid tile pos: " << ix << ',' << iy);
+
         while (SDL_PollEvent(&event)) {
 #ifdef DEBUG_SCREEN
             ImGui_ImplSDL3_ProcessEvent(&event);
@@ -526,8 +534,8 @@ struct GameClass : Application {
                     if (event.key.key == SDLK_X) entities[players[0]].data.vel *= 10;
                     if (event.key.key == SDLK_F) slow_motion = !slow_motion;
                     if (event.key.key == SDLK_B) {
-                        world_handler->setTile(level0, {(uint)ix, (uint)iy}, 1);
-                        world_handler->renderDirtyLevels(*leveltris);
+                        world_handler.setTile(level0, {(uint)ix, (uint)iy}, 1);
+                        world_handler.renderDirtyLevels(*leveltris);
                         break;
                     }
                     inputs.do_inputs(event.key.key, 16.0f);
@@ -540,8 +548,8 @@ struct GameClass : Application {
         }
 
         {
-            auto& level0 = world_handler->placed_levels[0].level;
-            auto& tm = world_handler->all_level_tilemaps[&level0];
+            auto& level0 = world_handler.placed_levels[0].level;
+            auto& tm = world_handler.all_level_tilemaps[&level0];
 
             const auto playerpos = entities[players[0]].data.hitbox_center();
             const int ix = (int)std::floor((playerpos.x - tm.offset.x) / tm.scale);
@@ -551,7 +559,7 @@ struct GameClass : Application {
                                       << (ix >= 0 && iy >= 0 && (uint)ix < tm.size.x && (uint)iy < tm.size.y ? tm.tilemap[ix][iy] : -123));
         }
 
-        world_handler->renderDirtyLevels(*leveltris);
+        world_handler.renderDirtyLevels(*leveltris);
 
         for (const auto i : players) {
             auto& player = entities[i];
@@ -574,7 +582,7 @@ struct GameClass : Application {
             if (entity->wants_to_despawn) should_clean_entities = true;
 
             if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);
-            entity->render(*renderer, entitytris->at(entitytrisindex[entity_id]), dt);
+            entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
         }
         if (should_clean_entities) entities.clean_entities();
 

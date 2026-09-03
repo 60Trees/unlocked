@@ -8,6 +8,7 @@
 #include "LDtkLoader/DataTypes.hpp"
 #include "base/app.hpp"
 #include <map>
+#include <optional>
 #include <utils.hpp>
 
 namespace Game {
@@ -22,6 +23,8 @@ namespace Game {
         constexpr static uint32_t BLACK = 0x000000ff;
 
         void set_opaque() { split.a = 0xff; }
+
+        inline auto operator<=>(const RGBA& other) const { return rgba <=> other.rgba; }
 
         // unions are cool. (:
     };
@@ -39,9 +42,10 @@ namespace Game {
 
         /// Initializes the colour
         void spawn(Base::Application& app, const ldtk::Entity* e = nullptr) override {
-            app.ensure_class_added<PuzzleState>([]{return new PuzzleState();});
-
             Entity::spawn(app, e);
+
+            app.ensure_class_added<PuzzleState>([] { return new PuzzleState(); });
+
             if (!e) return;
 
             data.pos.x = e->getPosition().x;
@@ -52,12 +56,20 @@ namespace Game {
             colour.split = {colourstruct.r, colourstruct.g, colourstruct.b, 255};
         };
 
-        void tick(Base::Application&, double) override {
+        void tick(Base::Application& app, double) override {
             colour.set_opaque();
             // for (auto& Base)
+            auto& state = app.get<PuzzleState>();
+
+            if (get_state()) state.active_colours[colour] = *get_state();
+
+            for (const auto [colour, value] : state.active_colours) {
+                debug_screen("colour" << colour.rgba,
+                    "Colour " << number_to_hex_string<uint32_t>(colour.rgba, 3) << " is " << (value ? "on" : "off"));
+            }
         }
 
-        virtual bool get_state() const = 0;
+        virtual std::optional<bool> get_state() const = 0;
 
         bool does_render() const override { return true; }
         Direction get_direction() const override { return RIGHT; }

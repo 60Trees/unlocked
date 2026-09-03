@@ -24,6 +24,10 @@ using namespace ldtkimport::RunSettings;
 #endif
 
 struct WorldHandlerImpl : Game::WorldHandler {
+    void init() override {}
+    void loop() override {}
+    void quit() override {}
+
     struct TrisIndex {
         size_t start_pos, end_pos;
     };
@@ -307,8 +311,6 @@ dap> ? ii_level.m_tileGrids[1]
 
                 if (flipX) swap(rect.uv.l, rect.uv.r);
                 if (flipY) swap(rect.uv.t, rect.uv.b);
-
-                
 
                 Renderer::make_textured_square(rect, tris.vertices);
             };

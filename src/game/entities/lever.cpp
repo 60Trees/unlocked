@@ -19,10 +19,10 @@ using namespace std;
 struct Lever : PuzzleObject {
     Direction active_direction;
     Direction current_direction;
-    bool get_state() const override { return active_direction == current_direction; }
+    optional<bool> get_state() const override { return active_direction == current_direction; }
 
     Hitbox get_defaults() const override { return {{12, 12}}; };
-    std::string name() const override { return "switch"; }
+    std::string name() const override { return "Lever"; }
 
     void spawn(Base::Application& app, const ldtk::Entity* e) override {
         PuzzleObject::spawn(app, e);
@@ -34,29 +34,20 @@ struct Lever : PuzzleObject {
         if (!defval.is_null()) this->active_direction = defval.value() ? this->current_direction : !this->current_direction;
     }
 
-    AnimationFrame get_anim_frame() const override {
+    AnimationFrame get_anim_frame(Base::Application&) const override {
         glm::vec<2, uint> top_left;
-        top_left.y = (!get_state()) * 16;
+        top_left.y = (active_direction != current_direction) * 16;
         top_left.x = current_direction * 16;
         return {.top_left = top_left, .size = {16, 16}, .tileset = "assets/buttons_n_shi.png", .direction = RIGHT};
     }
 
-    vector<size_t> colliding_with;
-
     void tick(Base::Application& app, double dt) override {
         PuzzleObject::tick(app, dt);
 
-        auto prev_colliding_with = std::move(colliding_with);
-        colliding_with.clear();
-
         for (const auto& [i, e] : app.get<EntityList>())
-            if (e.get() != this && dynamic_cast<Game::EntitySwitcher*>(e.get()) && e->colliding_with(this)) colliding_with.push_back(i);
-
-        for (const auto i : colliding_with)
-            if (!ranges::contains(prev_colliding_with, i))
-                if ((app.get<EntityList>()[i].data.vel.x > 0) != current_direction) {
-                app.get<EntityList>()[i].pause_time += 0;
-            current_direction = !current_direction;
+            if (e.get() != this && dynamic_cast<Game::EntitySwitcher*>(e.get()) && e->colliding_with(this)) {
+                const auto vel = app.get<EntityList>()[i].data.vel.x;
+                current_direction = vel == 0 ? current_direction : (vel > 0);
             }
     }
 };

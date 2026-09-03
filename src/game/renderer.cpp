@@ -892,9 +892,11 @@ void GameRenderer::loop() {
 
     camera._target_zoom = camera.zoom;
 
-    applyCameraBound(dt);
-    camera.update_zoom(dt);
-    camera.update_camera(dt);
+    const auto cam_slowmo = 3.0;
+
+    applyCameraBound(dt / cam_slowmo);
+    camera.update_zoom(dt / cam_slowmo);
+    camera.update_camera(dt / cam_slowmo);
 
     int screen_offset_x = 0;
     int screen_offset_y = 0;

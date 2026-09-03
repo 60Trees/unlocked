@@ -142,14 +142,14 @@ namespace Game {
 
         virtual Hitbox get_defaults() const = 0;
 
-        virtual void render(Base::Renderer& r, Base::Renderer::VertexLayer& layer, double deltaTime) const;
+        virtual void render(Base::Application& app, Base::Renderer::VertexLayer& layer) const;
         virtual std::string name() const = 0;
         virtual ~Entity() = default;
 
         bool wants_to_despawn = false;
 
         virtual bool does_render() const { return movement.get(); }
-        virtual AnimationFrame get_anim_frame() const {
+        virtual AnimationFrame get_anim_frame(Base::Application& app) const {
             if (!movement) return {};
             return movement->anim_frame(this);
         }

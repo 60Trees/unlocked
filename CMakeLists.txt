@@ -14,6 +14,8 @@ file(GLOB_RECURSE PROJECT_SOURCES
     CONFIGURE_DEPENDS
     src/*.cpp
     src/*.c
+    lib_helper/src/*.cpp
+    lib_helper/src/*.c
 )
 
 set(CMAKE_C_STANDARD 17)
