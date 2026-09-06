@@ -6,15 +6,18 @@
 
 #include <game/base/entity.hpp>
 #include "LDtkLoader/DataTypes.hpp"
+#include "LDtkLoader/Entity.hpp"
 #include "base/app.hpp"
+#include <iostream>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <utils.hpp>
 
 namespace Game {
     union RGBA {
         uint32_t rgba;
-        struct {
+        struct Split {
             uint8_t r, g, b, a;
         } split;
         constexpr static uint32_t RED = 0xff0000ff;
@@ -40,6 +43,19 @@ namespace Game {
     struct PuzzleObject : Entity {
         std::string name() const override { return "PuzzleObject"; }
 
+        bool visible = true;
+
+        bool does_render() const override { return visible; }
+
+        // template <typename T>
+        // inline static T getfield(const ldtk::Entity* e, std::string_view name, T _default) {
+        //     try {
+        //         return e->getField<T>(std::string{name}).value();
+        //     } catch (std::invalid_argument) {
+        //         return _default;
+        //     }
+        // }
+
         /// Initializes the colour
         void spawn(Base::Application& app, const ldtk::Entity* e = nullptr) override {
             Entity::spawn(app, e);
@@ -51,9 +67,11 @@ namespace Game {
             data.pos.x = e->getPosition().x;
             data.pos.y = -e->getPosition().y;
 
-            const auto field = e->getField<ldtk::FieldType::Color>("Color");
-            const auto& colourstruct = field.value_or(ldtk::Color{0, 0, 0, 255});
+            std::cout << "Entity " << e->getName() << std::endl;
+            const auto& colourstruct = e->getField<ldtk::FieldType::Color>("Color").value();
             colour.split = {colourstruct.r, colourstruct.g, colourstruct.b, 255};
+
+            visible = !e->getField<ldtk::FieldType::Bool>("Invisible").value_or(false);
         };
 
         void tick(Base::Application& app, double) override {
@@ -71,7 +89,6 @@ namespace Game {
 
         virtual std::optional<bool> get_state() const = 0;
 
-        bool does_render() const override { return true; }
         Direction get_direction() const override { return RIGHT; }
 
         RGBA colour;

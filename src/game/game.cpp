@@ -534,6 +534,7 @@ struct GameClass : Application {
                     if (event.key.key == SDLK_X) entities[players[0]].data.vel *= 10;
                     if (event.key.key == SDLK_F) slow_motion = !slow_motion;
                     if (event.key.key == SDLK_B) {
+                        debug_screen("test1", "Yes Working level: " << &level0 << "\nYes working handler: " << &world_handler);
                         world_handler.setTile(level0, {(uint)ix, (uint)iy}, 1);
                         world_handler.renderDirtyLevels(*leveltris);
                         break;

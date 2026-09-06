@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <typeindex>
 #include <typeinfo>
 #include <vector>
 
@@ -29,7 +30,36 @@ namespace Base {
 
         std::vector<std::unique_ptr<BaseClass>> classes;
 
+        // using std::type_index didn't play well with map
+        using type_hash = size_t;
+        struct UserData {
+            type_hash _type;
+            std::shared_ptr<void> _data;
+        };
+
+        std::map<type_hash, UserData> _user_data;
+
         public:
+        template <typename Owner, typename T>
+        void set_user_data(std::shared_ptr<T> data) {
+            _user_data[typeid(Owner).hash_code()] = UserData{typeid(T).hash_code(), std::move(data)};
+        }
+
+        template <typename Owner, typename T>
+        std::shared_ptr<T> get_user_data() {
+            auto it = _user_data.find(typeid(Owner).hash_code());
+
+            if (it == _user_data.end()) return nullptr;
+            if (it->second._type != typeid(T).hash_code()) return nullptr;
+
+            return std::static_pointer_cast<T>(it->second._data);
+        }
+
+        template <typename Owner>
+        void remove_user_data() {
+            _user_data.erase(typeid(Owner).hash_code());
+        }
+
         template <typename T>
             requires std::derived_from<T, BaseClass>
         [[nodiscard]] T& get() {

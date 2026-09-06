@@ -27,7 +27,7 @@ struct LightShaftSystem {
         float fade_length;       /// world units the fade takes to go from full strength to zero (<=0 = never fades)
     };
     std::vector<Pass> passes = {
-        {16.0f, 0.50f, 0.0f, 0.50f, 0.0f, -1.0f},
+        {16.0f, 0.50f, 20.0f, 0.50f, 0.0f, -1.0f},
         {8.0f, 0.40f, 55.0f, 0.35f, 0.0f, 8.0f},
         {4.0f, 0.30f, 130.0f, 0.25f, 40.0f, 16.0f},
     };
