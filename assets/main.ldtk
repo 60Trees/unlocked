@@ -4141,7 +4141,10 @@
 									"id": "V_String",
 									"params": ["Right"]
 								}] },
-								{ "__identifier": "Invisible", "__type": "Bool", "__value": false, "__tile": null, "defUid": 300, "realEditorValues": [] }
+								{ "__identifier": "Invisible", "__type": "Bool", "__value": true, "__tile": null, "defUid": 300, "realEditorValues": [{
+									"id": "V_Bool",
+									"params": [ true ]
+								}] }
 							]
 						},
 						{
@@ -4159,7 +4162,10 @@
 							"fieldInstances": [
 								{ "__identifier": "Color", "__type": "Color", "__value": "#FF0000", "__tile": null, "defUid": 104, "realEditorValues": [] },
 								{ "__identifier": "Negated", "__type": "Bool", "__value": false, "__tile": null, "defUid": 109, "realEditorValues": [] },
-								{ "__identifier": "Invisible", "__type": "Bool", "__value": false, "__tile": null, "defUid": 301, "realEditorValues": [] }
+								{ "__identifier": "Invisible", "__type": "Bool", "__value": false, "__tile": null, "defUid": 301, "realEditorValues": [{
+									"id": "V_Bool",
+									"params": [ false ]
+								}] }
 							]
 						},
 						{

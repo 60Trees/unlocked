@@ -962,15 +962,15 @@ void GameRenderer::loop() {
 
     // --- upload all vertices for this frame into one scratch buffer ---
     static thread_local std::vector<GPUVertex> gpuVerts;
-    static thread_local std::vector<uint32_t> firstVertex;  // per VertexList
+    static thread_local std::vector<uint32_t> firstVertex;
     gpuVerts.clear();
-    firstVertex.clear();
-    for (size_t i = 0; i < renderqueue().size(); i++) {
+    firstVertex.assign(renderqueue().size(), 0);
+    for (size_t i = 0; i < renderqueue().size(); ++i) {
         VertexLayer& vl = renderqueue()[i];
         if (vl.material.vertex_shader.empty()) continue;
         if (vl.material.pixel_shader.empty()) continue;
 
-        firstVertex.push_back((uint32_t)gpuVerts.size());
+        firstVertex[i] = (uint32_t)gpuVerts.size();
         for (const Vertex& v : vl.vertices) gpuVerts.push_back(packVertex(v));
     }
     if (!gpuVerts.empty()) {
@@ -1031,6 +1031,18 @@ void GameRenderer::loop() {
             wgpuRenderPassEncoderSetBindGroup(pass, 1, textures[texId < textures.size() ? texId : nullTextureId].bindGroup, 0, nullptr);
             uint32_t dynOff = matParamOffset[i];
             wgpuRenderPassEncoderSetBindGroup(pass, 2, paramsScratchBG, 1, &dynOff);
+
+            if (i >= firstVertex.size()) {
+                std::fprintf(stderr, "Renderer error: firstVertex[%zu] but size is %zu\n", i, firstVertex.size());
+                continue;
+            }
+            if (firstVertex[i] + vl.vertices.size() > gpuVerts.size()) {
+                std::fprintf(stderr,
+                    "Renderer error: vertex range out of bounds: "
+                    "first=%u count=%zu total=%zu\n",
+                    firstVertex[i], vl.vertices.size(), gpuVerts.size());
+                continue;
+            }
             wgpuRenderPassEncoderDraw(pass, (uint32_t)vl.vertices.size(), 1, firstVertex[i], 0);
         }
         wgpuRenderPassEncoderEnd(pass);
