@@ -62,6 +62,9 @@ void Base::FpsCounter::loop() {
 #define sf(in) (in < 60 ? in : round(in))
 
     debug_screen("FPS", "FPS: " << colourize(sf(fps)) << "\nHigh: " << colourize(sf(high)) << "\nLow: " << colourize(sf(low)));
+
+    seconds_since_start += deltaTime;
+    while (seconds_since_start > 1e6) seconds_since_start -= 1e6;
 }
 
 void Base::FpsCounter::quit() {}

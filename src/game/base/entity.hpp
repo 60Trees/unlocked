@@ -8,6 +8,7 @@
 #include "entity_movements.hpp"
 #include "game/anim.hpp"
 #include <LDtkLoader/Entity.hpp>
+#include <nlohmann/json.hpp>
 
 namespace Game {
     /// `0` = activated this frame, `<0` = not activated, `>0` = how long it's been activated for (seconds)
@@ -129,7 +130,16 @@ namespace Game {
             double speed;
         };
 
-        virtual void spawn(Base::Application& app, const ldtk::Entity* e = nullptr) ;
+        std::vector<Entity*> children{};
+        Entity* parent = nullptr;
+
+        inline void adopt(Entity* new_child) {
+            new_child->parent = this;
+            if (std::find(children.begin(), children.end(), new_child) != children.end()) return;
+            children.push_back(new_child);
+        }
+
+        virtual void spawn(Base::Application& app, const ldtk::Entity* e = nullptr);
 
         virtual void tick_all(Base::Application& app, double deltaTime);
         virtual void tick(Base::Application& app, double deltaTime) {}
@@ -156,6 +166,13 @@ namespace Game {
         virtual Direction get_direction() const {
             if (!movement) return false;
             return movement->direction;
+        }
+
+        virtual nlohmann::json dump_as_json() const { return {{"name", name()}, {"x", data.pos.x}, {"y", data.pos.y}}; }
+
+        friend std::ostream& operator<<(std::ostream& os, const Entity& obj) {
+            os << obj.dump_as_json();
+            return os;
         }
 
         _REGISTERABLE(Entity);

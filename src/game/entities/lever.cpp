@@ -4,7 +4,6 @@
  * @file src/game/entities/lever.cpp
  */
 
-#include <algorithm>
 #include <game/base/entity.hpp>
 #include <game/base/entity_list.hpp>
 #include <utils.hpp>

@@ -3,6 +3,8 @@
 #include <cmath>
 #include <game/base/world_handler.hpp>
 
+using std::remove_if;
+
 using namespace std;
 using namespace Base;
 
@@ -10,12 +12,21 @@ Game::Entity::vec2_t Game::Entity::get_gravity() { return {0.0, -700}; };
 void Game::Entity::spawn(Base::Application& app, const ldtk::Entity* e) {
     app.ensure_class_added<EntityList>([] { return new EntityList(); });
     data = get_defaults();
+
+    if (e) {
+        data.pos.x = e->getPosition().x;
+        data.pos.y = -e->getPosition().y;
+    }
 }
 void Game::Entity::tick_all(Base::Application& app, double deltaTime) {
+    children.erase(remove_if(children.begin(), children.end(), [](Entity* i) { return !i; }), children.end());
+    for (Entity* child : children) child->parent = this;
+
     if (pause_time > 0) {
         pause_time -= deltaTime;
         return;
     }
+
     tick_position(app, deltaTime);
     tick(app, deltaTime);
 }
@@ -195,7 +206,7 @@ void Game::Entity::tick_position(Base::Application& app, double deltaTime) {
     data.colliding_with.up.update(deltaTime, colliding_up);
     data.colliding_with.down.update(deltaTime, colliding_down);
 
-    if (collided) debug_screen(this, "Entity " << this << ": Speed: " << speed);
+    //if (collided) debug_screen(this, "Entity " << this << ": Speed: " << speed);
 
     // constexpr double threshold = 80;
     // constexpr double max = 300;

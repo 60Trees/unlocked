@@ -11,7 +11,6 @@
 #include <iostream>
 #include <map>
 #include <optional>
-#include <stdexcept>
 #include <utils.hpp>
 
 namespace Game {
@@ -64,9 +63,6 @@ namespace Game {
 
             if (!e) return;
 
-            data.pos.x = e->getPosition().x;
-            data.pos.y = -e->getPosition().y;
-
             std::cout << "Entity " << e->getName() << std::endl;
             const auto& colourstruct = e->getField<ldtk::FieldType::Color>("Color").value();
             colour.split = {colourstruct.r, colourstruct.g, colourstruct.b, 255};
@@ -80,11 +76,6 @@ namespace Game {
             auto& state = app.get<PuzzleState>();
 
             if (get_state()) state.active_colours[colour] = *get_state();
-
-            for (const auto [colour, value] : state.active_colours) {
-                debug_screen("colour" << colour.rgba,
-                    "Colour " << number_to_hex_string<uint32_t>(colour.rgba, 3) << " is " << (value ? "on" : "off"));
-            }
         }
 
         virtual std::optional<bool> get_state() const = 0;

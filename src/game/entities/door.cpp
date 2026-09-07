@@ -159,11 +159,6 @@ struct Door : PuzzleObject {
         const auto tilesize = get_tile_size();
         const int width = tilesize.x, height = tilesize.y;
 
-        debug_screen(this << "a", "Tile X: " << tilepos.x << ',' << tilepos.y << "\nWidth / height: " << width << ',' << height
-                                             << "\nIs open: " << is_open.pressed << " for " << is_open.time);
-
-        debug_screen("test2", "Not working level: " << own_layer->level << "\nNot working handler: " << &app.get<WorldHandler>());
-
         for (int ix = tilepos.x; ix < tilepos.x + width; ix++)
             for (int iy = tilepos.y; iy < tilepos.y + height; iy++)
                 app.get<WorldHandler>().setTile(*own_layer->level, {ix, iy}, is_open ? 1 : 0);

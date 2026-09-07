@@ -17,7 +17,6 @@
 #include <utility>
 #include "LDtkLoader/DataTypes.hpp"
 #include "game/base/world_handler.hpp"
-#include "entities/puzzle_aspects.hpp"
 #include "game/systems/light_shafts.hpp"
 
 #ifdef DEBUG_SCREEN

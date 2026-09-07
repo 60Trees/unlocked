@@ -43,12 +43,9 @@ std::string runtime_datetime() {
 //
 
 #ifdef __EMSCRIPTEN__
-#include <emscripten.h>
+#    include <emscripten.h>
 
-void handle_loop(
-    std::function<bool()> loop,
-    std::function<void()> quit
-) {
+void handle_loop(std::function<bool()> loop, std::function<void()> quit) {
     static std::function<bool()> _loop;
     static std::function<void()> _quit;
 
@@ -65,16 +62,12 @@ void handle_loop(
                 emscripten_cancel_main_loop();
             }
         },
-        0,
-        true
-    );
+        0, true);
 }
 #else
-void handle_loop(
-    std::function<bool()> loop,
-    std::function<void()> quit
-) {
-    while (loop()) {}
+void handle_loop(std::function<bool()> loop, std::function<void()> quit) {
+    while (loop()) {
+    }
     std::print("\n[GAMELOOP] Quitting...\n");
     quit();
 }
@@ -97,7 +90,7 @@ void welcome_message() {
               << "\n| Uninitialized memory test: " << funny_number_generator() << "\n| Git URL: " << PROJECT_GIT_URL << " with commit #"
               << PROJECT_GIT_COMMIT_HASH << "\n| "
 #ifdef __EMSCRIPTEN__
-              << "Using EMSCRIPTEN\n| "
+              << "Compiler: Emscripten\n| "
 #endif
 #ifdef __clang___
               << "Compiler: Clang " << __clang_major__ << "." << __clang_minor__ << "." << __clang_patchlevel__
@@ -126,7 +119,5 @@ void welcome_message() {
         // (the wgpuGetVersion function doesnt work)
 << "\n| WGPU version unknown (using emscripten)"
 #endif
-              << "\n| SDL version: " << SDL_GetVersion()
-        << "\n  | Video driver: " << SDL_GetCurrentVideoDriver()
-        << std::endl;
+              << "\n| SDL version: " << SDL_GetVersion() << "\n|- Video driver: " << SDL_GetCurrentVideoDriver() << std::endl;
 }

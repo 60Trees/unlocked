@@ -12,6 +12,9 @@ namespace Base {
         void quit() override;
 
         double deltaTime = 0;
+        // loops at 1e6
+        long double seconds_since_start = 0;
+
         inline const float fps() const noexcept { return _FPS; }
 
         protected:

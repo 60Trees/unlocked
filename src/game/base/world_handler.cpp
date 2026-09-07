@@ -177,7 +177,7 @@ dap> ? ii_level.m_tileGrids[1]
     void renderDirtyLevels(Base::Renderer::VertexArray& leveltris, Base::Renderer& renderer) override {
         for (auto& placed : placed_levels) {
             if (rendered_levels.count(&placed.level) == 0) {
-                print("Re-rendering level {}\n", placed.level.name);
+                // print("Re-rendering level {}\n", placed.level.name);
                 render(placed.level, leveltris, renderer, placed.offset);
             }
         }
@@ -416,10 +416,10 @@ dap> ? ii_level.m_tileGrids[1]
             {
 #endif
 
-                std::print("Rendering statically\n");
-                // Original path: bake straight from LDtkLoader's static tile data.
-                // Used for every non-collision layer, and as a fallback if the
-                // ldtkimport layer/tileset couldn't be resolved above.
+                // std::print("Rendering statically\n");
+                //  Original path: bake straight from LDtkLoader's static tile data.
+                //  Used for every non-collision layer, and as a fallback if the
+                //  ldtkimport layer/tileset couldn't be resolved above.
                 for (auto& tile : layer.allTiles()) {
                     auto tilepos = tile.getPosition();
                     tilepos.x += offset.x;
