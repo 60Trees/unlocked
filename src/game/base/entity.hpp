@@ -152,7 +152,7 @@ namespace Game {
 
         virtual Hitbox get_defaults() const = 0;
 
-        virtual void render(Base::Application& app, Base::Renderer::VertexLayer& layer) const;
+        virtual void render(Base::Application& app, Base::Renderer::VertexLayer& layer);
         virtual std::string name() const = 0;
         virtual ~Entity() = default;
 

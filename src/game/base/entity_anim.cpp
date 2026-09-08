@@ -7,7 +7,7 @@
 using namespace std;
 using namespace Base;
 
-void Game::Entity::render(Base::Application& app, Base::Renderer::VertexLayer& layer) const {
+void Game::Entity::render(Base::Application& app, Base::Renderer::VertexLayer& layer) {
     auto& r = app.get<Base::Renderer>();
     const double deltaTime = app.get<Base::FpsCounter>().deltaTime;
 

@@ -72,7 +72,7 @@ struct Door : PuzzleObject {
         }
     }
 
-    void render(Base::Application& app, Base::Renderer::VertexLayer& layer) const override {
+    void render(Base::Application& app, Base::Renderer::VertexLayer& layer) override {
         auto& r = app.get<Base::Renderer>();
         const double deltaTime = app.get<Base::FpsCounter>().deltaTime;
 
