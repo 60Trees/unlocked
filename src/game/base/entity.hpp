@@ -135,8 +135,16 @@ namespace Game {
 
         inline void adopt(Entity* new_child) {
             new_child->parent = this;
+            // if it's already a child then ignore
             if (std::find(children.begin(), children.end(), new_child) != children.end()) return;
+
             children.push_back(new_child);
+        }
+        inline void disown(Entity* unwanted_child) {
+            // if it's already disowed then ignore
+            if (std::find(children.begin(), children.end(), unwanted_child) != children.end()) return;
+            children.erase(remove_if(children.begin(), children.end(), [&](Entity* i) { return i == unwanted_child; }), children.end());
+            unwanted_child->parent = nullptr;
         }
 
         virtual void spawn(Base::Application& app, const ldtk::Entity* e = nullptr);

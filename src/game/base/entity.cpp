@@ -19,7 +19,9 @@ void Game::Entity::spawn(Base::Application& app, const ldtk::Entity* e) {
     }
 }
 void Game::Entity::tick_all(Base::Application& app, double deltaTime) {
+    // Disown dead children
     children.erase(remove_if(children.begin(), children.end(), [](Entity* i) { return !i; }), children.end());
+
     for (Entity* child : children) child->parent = this;
 
     if (pause_time > 0) {
