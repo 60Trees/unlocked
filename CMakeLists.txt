@@ -29,6 +29,15 @@ add_executable(${PROJECT_NAME_VAR}
     ${PROJECT_SOURCES}
 )
 
+target_compile_options(${PROJECT_NAME_VAR} PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer
+)
+
+target_link_options(${PROJECT_NAME_VAR} PRIVATE
+    -fsanitize=address,undefined
+)
+
 option(ENABLE_CLANG_TIDY "Run clang-tidy on project sources" ON)
 
 if(ENABLE_CLANG_TIDY)

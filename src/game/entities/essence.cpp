@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+#include <complex>
 #include <game/base/entity.hpp>
 #include <iostream>
 #include "base/app.hpp"
@@ -31,6 +33,12 @@ struct Essence : Entity {
     void tick(Base::Application& app, double dt) override {
         Entity::tick(app, dt);
 
+        // TODO: (URGENT) Find out why this code crashes the entire computer
+        // Not just the app, but the entire computer. It happens randomly,
+        // from a few seconds to a minute (at most)
+        // Trying to run in web browser might give a clue
+        return;
+
         if (parent) {
             data.pos = parent->data.hitbox_center();
 
@@ -50,7 +58,7 @@ struct Essence : Entity {
             }
 
             float rotation_offset = [&] {
-                [[assume(triangle_count > 0)]];
+                //[[assume(triangle_count > 0)]];
                 const float spacing = 360.0 / triangle_count;
                 return spacing * own_index;
             }();
@@ -140,7 +148,7 @@ struct Essence : Entity {
         C.x += center.x;
         C.y += center.y;
 
-        std::array<Renderer::Vertex, 3> tris;
+        std::array<Renderer::Vertex, 3> tris{};
 
         auto set = [&](Renderer::Vertex& v, V2 p) {
             v.pos.world.x = p.x;
@@ -152,6 +160,16 @@ struct Essence : Entity {
         set(tris[1], B);
         set(tris[2], C);
 
-        for (auto& t : tris) layer.vertices.push_back(t);
+        for (auto& t : tris) {
+            t.pos.world.depth = 0.0f;
+            const auto normalize_float = [](float& f) {
+                if (isinf(f) || isnan(f)) f = 0.0f;
+            };
+            normalize_float(t.pos.world.x);
+            normalize_float(t.pos.world.y);
+            // that's literally everything in Renderer::Vertex
+            // its all unions
+            layer.vertices.push_back(t);
+        }
     }
 } _REGISTER_FOR(new Essence(), "Essence", Entity);
