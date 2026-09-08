@@ -123,8 +123,18 @@ static constexpr Base::Renderer::BlendMode kAllBlendModes[] = {
 static constexpr uint32_t kParamAlign = 256;  // WebGPU's minUniformBufferOffsetAlignment floor
 static constexpr uint32_t kParamMax = 256;    // per-draw params budget; raise if you need bigger structs
 
+#include <ostream>
+#include <sstream>
+
 // TODO: Fix Emscripten with WGPU (its very broken)
 #define spamlog(message) std::cout << message << std::endl
+#define uh_oh(message)                                   \
+    do {                                                 \
+        ::std::ostringstream _entry;                     \
+        _entry << message;                               \
+        ::std::cout << _entry.str() << std::endl;        \
+        throw ::std::runtime_error(_entry.str().data()); \
+    } while (0);
 
 class GameRenderer : public Base::Renderer {
     public:
@@ -301,18 +311,32 @@ void GameRenderer::applyCameraBound(double dt) {
 }
 // <AI>
 
+extern "C" void _TEST_PRINTF_IN_C();
+
 void GameRenderer::init() {
-    if (!SDL_Init(SDL_INIT_VIDEO)) throw _err(("SDL_Init failed: {}", SDL_GetError()));
+    if (!SDL_Init(SDL_INIT_VIDEO)) uh_oh("SDL_Init failed: " << SDL_GetError());
+
     spamlog("Initialized");
 
     window = SDL_CreateWindow("Run", 1280, 720, SDL_WINDOW_RESIZABLE);
     spamlog("Created window");
 
     instance = wgpuCreateInstance(nullptr);
-    spamlog("Created WGPUInstane");
+    if (!instance) {
+        uh_oh("instance is null ):");
+    } else {
+        spamlog("Instance is not null (:");
+    }
+    spamlog("Created WGPUInstance (:");
+    std::cout << "Test cout" << std::endl;
+    std::print("Test print\n");
+    printf("Test printfa\n");
+    _TEST_PRINTF_IN_C();
 
+    printf("a\n");
     surface = SDL_GetWGPUSurface(instance, window);
-    if (!surface) throw _err(("Failed to get WGPU surface"));
+    printf("HHHHHHHH\n");
+    if (!surface) uh_oh("Failed to get WGPU surface");
     spamlog("Created WGPUSurface");
 
     WGPURequestAdapterOptions ao{};
@@ -559,7 +583,7 @@ void GameRenderer::createLayoutsAndStatics() {
         {.binding = 1, .visibility = WGPUShaderStage_Fragment, .sampler = {.type = WGPUSamplerBindingType_Filtering}}};
     WGPUBindGroupLayoutDescriptor bd{.label = "Blit BGL"_wgpu, .entryCount = 2, .entries = be};
     blitBGL = wgpuDeviceCreateBindGroupLayout(device, &bd);
-    if (!transformBGL || !atlasBGL || !paramsBGL || !blitBGL) throw _err(("Failed to create bind group layouts"));
+    if (!transformBGL || !atlasBGL || !paramsBGL || !blitBGL) uh_oh("Failed to create bind group layouts");
 
     WGPUSamplerDescriptor sd{.addressModeU = WGPUAddressMode_ClampToEdge,
         .addressModeV = WGPUAddressMode_ClampToEdge,

@@ -73,7 +73,8 @@ fn terrain_visible(origin: vec2f, march_dir: vec2f, atlas_origin: vec2f, atlas_s
         uv.y = 1.0 - uv.y;
         let in_bounds = all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0));
         if (!in_bounds) { break; }  // exited the level -> nothing left to hit
-        if (textureSample(extraTex0, prevSamp, uv).r > 0.5) { return 0.0; }
+        let mask = textureSampleLevel(extraTex0, prevSamp, uv, 0.0).r;
+        if (mask > 0.5) { return 0.0; }
     }
     return 1.0;
 }

@@ -1,5 +1,3 @@
-#pragma once
-
 #include <cmath>
 #include <complex>
 #include <game/base/entity.hpp>
@@ -24,6 +22,8 @@ struct Essence : Entity {
     float visual_rotation = 0;
     float triangle_side_length = 2;
     float visual_y_offset = 0;
+    // in seconds
+    float bobbing_sin_offset = 0;
 
     float orbit_around_radius = 0;
     float orbit_rotation = 0;
@@ -32,12 +32,6 @@ struct Essence : Entity {
 
     void tick(Base::Application& app, double dt) override {
         Entity::tick(app, dt);
-
-        // TODO: (URGENT) Find out why this code crashes the entire computer
-        // Not just the app, but the entire computer. It happens randomly,
-        // from a few seconds to a minute (at most)
-        // Trying to run in web browser might give a clue
-        return;
 
         if (parent) {
             data.pos = parent->data.hitbox_center();
@@ -63,6 +57,10 @@ struct Essence : Entity {
                 return spacing * own_index;
             }();
 
+            bobbing_sin_offset = [&]{
+                return (float)own_index * 0.5;
+            }();
+
             auto& fps = app.get<Base::FpsCounter>();
             const auto& seconds_since_start = fps.seconds_since_start;
 
@@ -85,7 +83,7 @@ struct Essence : Entity {
 
         using namespace Base;
 
-        visual_y_offset = mth::sin(seconds_since_start * 2.5);
+        visual_y_offset = mth::sin((seconds_since_start + bobbing_sin_offset) * 2.5);
 
         // revolutions per second
         constexpr double rps = 0.5;

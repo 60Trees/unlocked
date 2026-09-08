@@ -20,7 +20,7 @@ file(GLOB_RECURSE PROJECT_SOURCES
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CLANG_TIDY_EXE "clang-tidy")
+#set(CLANG_TIDY_EXE "clang-tidy")
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,28 +29,28 @@ add_executable(${PROJECT_NAME_VAR}
     ${PROJECT_SOURCES}
 )
 
-target_compile_options(${PROJECT_NAME_VAR} PRIVATE
-    -fsanitize=address,undefined
-    -fno-omit-frame-pointer
-)
+#target_compile_options(${PROJECT_NAME_VAR} PRIVATE
+#    -fsanitize=address,undefined
+#    -fno-omit-frame-pointer
+#)
+#
+#target_link_options(${PROJECT_NAME_VAR} PRIVATE
+#    -fsanitize=address,undefined
+#)
 
-target_link_options(${PROJECT_NAME_VAR} PRIVATE
-    -fsanitize=address,undefined
-)
-
-option(ENABLE_CLANG_TIDY "Run clang-tidy on project sources" ON)
-
-if(ENABLE_CLANG_TIDY)
-    find_program(CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)
-
-    message(STATUS "clang-tidy: ${CLANG_TIDY_EXE}")
-
-    set_target_properties(${PROJECT_NAME_VAR}
-        PROPERTIES
-            CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
-            C_CLANG_TIDY "${CLANG_TIDY_EXE}"
-    )
-endif()
+#option(ENABLE_CLANG_TIDY "Run clang-tidy on project sources" OFF)
+#
+#if(ENABLE_CLANG_TIDY)
+#    find_program(CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)
+#
+#    message(STATUS "clang-tidy: ${CLANG_TIDY_EXE}")
+#
+#    set_target_properties(${PROJECT_NAME_VAR}
+#        PROPERTIES
+#            CXX_CLANG_TIDY "${CLANG_TIDY_EXE}"
+#            C_CLANG_TIDY "${CLANG_TIDY_EXE}"
+#    )
+#endif()
 
 include(FetchContent)
 
@@ -167,7 +167,7 @@ if(EMSCRIPTEN)
     target_link_options(${PROJECT_NAME_VAR}
         PRIVATE
             "-sUSE_SDL=3"
-            "-sASSERTIONS=1"
+            "-sASSERTIONS=2"
             "-sALLOW_MEMORY_GROWTH"
             "-sEXIT_RUNTIME=0"
             "-sASYNCIFY=1"
@@ -206,8 +206,7 @@ FetchContent_MakeAvailable(
     glm
 )
 
-if(EXISTS "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c"
-   AND EXISTS "${CMAKE_SOURCE_DIR}/lib_helper/sdl3webgpu.c")
+if(EXISTS "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c" AND EXISTS "${CMAKE_SOURCE_DIR}/lib_helper/sdl3webgpu.c")
 
     file(COPY_FILE
         "${CMAKE_SOURCE_DIR}/lib_helper/sdl3webgpu.c"
@@ -216,19 +215,8 @@ if(EXISTS "${sdl3webgpu_SOURCE_DIR}/sdl3webgpu.c"
 endif()
 
 if(EMSCRIPTEN)
-    # Tell SDL3WebGPU to use the Emscripten/Dawn WebGPU API.
-    target_compile_definitions(
-        sdl3webgpu
-        PRIVATE
-            WEBGPU_BACKEND_EMDAWNWEBGPU
-    )
-
-    # Emscripten provides the WebGPU implementation through its port.
-    target_compile_options(
-        sdl3webgpu
-        PRIVATE
-            "--use-port=emdawnwebgpu"
-    )
+    target_compile_definitions(sdl3webgpu PRIVATE WEBGPU_BACKEND_EMDAWNWEBGPU)
+    target_link_libraries(sdl3webgpu PUBLIC webgpu)   # <- inherit webgpu's pinned port instead of specifying your own
 endif()
 
 # ---------------------------------------------------------------------------

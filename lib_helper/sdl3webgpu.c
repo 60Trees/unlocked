@@ -4,26 +4,26 @@
 /**
  * This is an extension of SDL3 for WebGPU, abstracting away the details of
  * OS-specific operations.
- * 
+ *
  * This file is part of the "Learn WebGPU for C++" book.
  *   https://eliemichel.github.io/LearnWebGPU
- * 
+ *
  * Most of this code comes from the wgpu-native triangle example:
  *   https://github.com/gfx-rs/wgpu-native/blob/master/examples/triangle/main.c
- * 
+ *
  * MIT License
  * Copyright (c) 2022-2024 Elie Michel and the wgpu-native authors
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -36,21 +36,24 @@
 #include "sdl3webgpu.h"
 
 #include <webgpu/webgpu.h>
+#include <stdio.h>
 
 #if defined(SDL_PLATFORM_MACOS)
-#  include <Cocoa/Cocoa.h>
-#  include <Foundation/Foundation.h>
-#  include <QuartzCore/CAMetalLayer.h>
+#    include <Cocoa/Cocoa.h>
+#    include <Foundation/Foundation.h>
+#    include <QuartzCore/CAMetalLayer.h>
 #elif defined(SDL_PLATFORM_IOS)
-#  include <UIKit/UIKit.h>
-#  include <Foundation/Foundation.h>
-#  include <QuartzCore/CAMetalLayer.h>
-#  include <Metal/Metal.h>
+#    include <UIKit/UIKit.h>
+#    include <Foundation/Foundation.h>
+#    include <QuartzCore/CAMetalLayer.h>
+#    include <Metal/Metal.h>
 #elif defined(SDL_PLATFORM_WIN32)
-#  include <windows.h>
+#    include <windows.h>
 #endif
 
 #include <SDL3/SDL.h>
+
+void _TEST_PRINTF_IN_C() { printf("Hello from c\n"); }
 
 WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
     SDL_PropertiesID props = SDL_GetWindowProperties(window);
@@ -58,11 +61,11 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
 #if defined(SDL_PLATFORM_MACOS)
     {
         id metal_layer = NULL;
-        NSWindow *ns_window = (__bridge NSWindow *)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+        NSWindow* ns_window = (__bridge NSWindow*)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
         if (!ns_window) return NULL;
-        [ns_window.contentView setWantsLayer : YES];
+        [ns_window.contentView setWantsLayer:YES];
         metal_layer = [CAMetalLayer layer];
-        [ns_window.contentView setLayer : metal_layer];
+        [ns_window.contentView setLayer:metal_layer];
 
         WGPUSurfaceSourceMetalLayer fromMetalLayer;
         fromMetalLayer.chain.sType = WGPUSType_SurfaceSourceMetalLayer;
@@ -71,13 +74,13 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
 
         WGPUSurfaceDescriptor surfaceDescriptor;
         surfaceDescriptor.nextInChain = &fromMetalLayer.chain;
-        surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+        surfaceDescriptor.label = (WGPUStringView){NULL, WGPU_STRLEN};
 
         return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
     }
 #elif defined(SDL_PLATFORM_IOS)
     {
-        UIWindow *ui_window = (__bridge UIWindow *)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
+        UIWindow* ui_window = (__bridge UIWindow*)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
         if (!uiwindow) return NULL;
 
         UIView* ui_view = ui_window.rootViewController.view;
@@ -86,7 +89,7 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
         metal_layer.frame = ui_view.frame;
         metal_layer.drawableSize = ui_view.frame.size;
 
-        [ui_view.layer addSublayer: metal_layer];
+        [ui_view.layer addSublayer:metal_layer];
 
         WGPUSurfaceSourceMetalLayer fromMetalLayer;
         fromMetalLayer.chain.sType = WGPUSType_SurfaceSourceMetalLayer;
@@ -95,13 +98,13 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
 
         WGPUSurfaceDescriptor surfaceDescriptor;
         surfaceDescriptor.nextInChain = &fromMetalLayer.chain;
-        surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+        surfaceDescriptor.label = (WGPUStringView){NULL, WGPU_STRLEN};
 
         return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
     }
 #elif defined(SDL_PLATFORM_LINUX)
     if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0) {
-        void *x11_display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
+        void* x11_display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
         uint64_t x11_window = SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
         if (!x11_display || !x11_window) return NULL;
 
@@ -113,13 +116,12 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
 
         WGPUSurfaceDescriptor surfaceDescriptor;
         surfaceDescriptor.nextInChain = &fromXlibWindow.chain;
-        surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+        surfaceDescriptor.label = (WGPUStringView){NULL, WGPU_STRLEN};
 
         return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
-    }
-    else if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0) {
-        void *wayland_display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
-        void *wayland_surface = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
+    } else if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0) {
+        void* wayland_display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
+        void* wayland_surface = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
         if (!wayland_display || !wayland_surface) return NULL;
 
         WGPUSurfaceSourceWaylandSurface fromWaylandSurface;
@@ -130,7 +132,7 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
 
         WGPUSurfaceDescriptor surfaceDescriptor;
         surfaceDescriptor.nextInChain = &fromWaylandSurface.chain;
-        surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+        surfaceDescriptor.label = (WGPUStringView){NULL, WGPU_STRLEN};
 
         return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
     }
@@ -148,31 +150,37 @@ WGPUSurface SDL_GetWGPUSurface(WGPUInstance instance, SDL_Window* window) {
 
         WGPUSurfaceDescriptor surfaceDescriptor;
         surfaceDescriptor.nextInChain = &fromWindowsHWND.chain;
-        surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+        surfaceDescriptor.label = (WGPUStringView){NULL, WGPU_STRLEN};
 
         return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
     }
 #elif defined(__EMSCRIPTEN__)
     {
-#  ifdef WEBGPU_BACKEND_EMDAWNWEBGPU
+        printf("doin emscripten\n");
+#    ifdef WEBGPU_BACKEND_EMDAWNWEBGPU
+        printf("emdawnewebgpu\n");
         WGPUEmscriptenSurfaceSourceCanvasHTMLSelector fromCanvasHTMLSelector;
         fromCanvasHTMLSelector.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
-#  else
-        WGPUSurfaceDescriptorFromCanvasHTMLSelector fromCanvasHTMLSelector;
+#    else
+        printf("idk...") WGPUSurfaceDescriptorFromCanvasHTMLSelector fromCanvasHTMLSelector;
         fromCanvasHTMLSelector.chain.sType = WGPUSType_SurfaceDescriptorFromCanvasHTMLSelector;
-#  endif
+#    endif
+        printf("canvas shi\n");
         fromCanvasHTMLSelector.chain.next = NULL;
-        fromCanvasHTMLSelector.selector = (WGPUStringView){ "canvas", WGPU_STRLEN };
+        fromCanvasHTMLSelector.selector = (WGPUStringView){"canvas", WGPU_STRLEN};
 
         WGPUSurfaceDescriptor surfaceDescriptor;
         surfaceDescriptor.nextInChain = &fromCanvasHTMLSelector.chain;
-        surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+        surfaceDescriptor.label = (WGPUStringView){NULL, WGPU_STRLEN};
 
-        return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
-    }  
+        printf("creating\n");
+        WGPUSurface retval = wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
+        printf("done\n");
+        if (!retval) printf("its null so dat might be a problem\n");
+        return retval;
+    }
 #else
     // TODO: See SDL_syswm.h for other possible enum values!
-#error "Unsupported WGPU_TARGET"
+#    error "Unsupported WGPU_TARGET"
 #endif
 }
-
