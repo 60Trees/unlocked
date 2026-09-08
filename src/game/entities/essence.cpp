@@ -11,6 +11,32 @@ using namespace Game;
 using namespace Base;
 using namespace std;
 
+#include <bit>
+#include <cstdint>
+#include <type_traits>
+#include <limits>
+
+template <typename T>
+    requires(std::is_trivially_copyable_v<T> && sizeof(T) <= sizeof(uint64_t))
+uint64_t visualRandom(T value, uint64_t start, uint64_t end) {
+    static_assert(std::numeric_limits<uint64_t>::digits == 64);
+
+    uint64_t x = 0;
+
+    // Copy the object's bits into the low bits of x.
+    __builtin_memcpy(&x, &value, sizeof(T));
+
+    // SplitMix64-style mixing.
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    x ^= x >> 31;
+
+    if (start > end) std::swap(start, end);
+
+    return start + x % (end - start + 1);
+}
+
 struct Essence : Entity {
     Essence() { std::cout << "Essence " << this << ": " << *this << std::endl; }
 
@@ -57,10 +83,6 @@ struct Essence : Entity {
                 return spacing * own_index;
             }();
 
-            bobbing_sin_offset = [&]{
-                return (float)own_index * 0.5;
-            }();
-
             auto& fps = app.get<Base::FpsCounter>();
             const auto& seconds_since_start = fps.seconds_since_start;
 
@@ -74,6 +96,7 @@ struct Essence : Entity {
             for (const auto& [i, e] : app.get<EntityList>())
                 if (e->name() == "player" && e->colliding_with(this)) e->adopt(this);
         }
+        bobbing_sin_offset = visualRandom(this, 0, 20);
     }
 
     void render(Base::Application& app, Base::Renderer::VertexLayer& layer) override {
