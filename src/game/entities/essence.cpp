@@ -6,6 +6,7 @@
 #include "glm/ext/vector_float2.hpp"
 #include "utils.hpp"
 #include <game/base/entity_list.hpp>
+#include <iterator>
 
 using namespace Game;
 using namespace Base;
@@ -55,6 +56,9 @@ struct Essence : Entity {
     float orbit_rotation = 0;
 
     glm::vec2 render_pos{};
+
+    glm::vec2 render_offset{};
+    bool render_initialized = false;
 
     void tick(Base::Application& app, double dt) override {
         Entity::tick(app, dt);
@@ -153,11 +157,31 @@ struct Essence : Entity {
         V2 orbit_offset = {orbit_around_radius * ocs, orbit_around_radius * osn};
 
         // Base center
-        V2 center = {float(data.pos.x + data.size.x / 2.f), float(data.pos.y + data.size.y / 2.f + visual_y_offset)};
+        V2 real_center = {float(data.pos.x + data.size.x / 2.f), float(data.pos.y + data.size.y / 2.f + visual_y_offset)};
 
         // Apply orbit
-        center.x += orbit_offset.x;
-        center.y += orbit_offset.y;
+        real_center.x += orbit_offset.x;
+        real_center.y += orbit_offset.y;
+
+        // Convert the target into a position relative to the parent.
+        //
+        // `data.pos` follows the parent, so we don't want to smooth the
+        // parent's movement itself. We only want to smooth the triangle's
+        // movement relative to the parent.
+        V2 parent_center = {float(data.pos.x + data.size.x / 2.f), float(data.pos.y + data.size.y / 2.f + visual_y_offset)};
+
+        V2 target_offset = {orbit_around_radius * ocs, orbit_around_radius * osn};
+
+        if (!render_initialized) {
+            render_offset = {target_offset.x, target_offset.y};
+            render_initialized = true;
+        }
+
+        float t = 1.0f - std::exp(-12.0f * float(fps.deltaTime));
+
+        render_offset += (glm::vec2{target_offset.x, target_offset.y} - render_offset) * t;
+
+        V2 center = {parent_center.x + render_offset.x, parent_center.y + render_offset.y};
 
         A = rot(A);
         A.x += center.x;
