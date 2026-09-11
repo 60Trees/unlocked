@@ -13,11 +13,16 @@
 #include <SDL3/SDL_scancode.h>
 
 #include <fs_utils.hpp>
-#include <stdexcept>
+#include <glm/common.hpp>
 #include <utility>
 #include "LDtkLoader/DataTypes.hpp"
+#include "SDL3/SDL_mouse.h"
+#include "SDL3/SDL_stdinc.h"
 #include "game/base/world_handler.hpp"
 #include "game/systems/light_shafts.hpp"
+#include "glm/ext/vector_float2.hpp"
+#include "glm/trigonometric.hpp"
+#include "utils.hpp"
 
 #ifdef DEBUG_SCREEN
 #    include <imgui_impl_sdl3.h>
@@ -35,23 +40,19 @@ extern "C" double dt_multiplier();
 
 using VertexArray = Renderer::VertexArray;
 
-struct GameClass : Application {
-    LightShaftSystem light_shafts;
+struct KeyboardControls {
+    SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_SPACE;
+};
 
-    Game::EntityList& entities = [&] -> Game::EntityList& {
-        this->ensure_class_added<Game::EntityList>([] { return new Game::EntityList(); });
-        return this->get<Game::EntityList>();
-    }();
+struct KeyboardEntityController : EntityController {
+    KeyboardControls controls;
+    span<const bool> keyboard;
+    glm::vec2 mousepos;
+    virtual void update_controls(Entity& own, const Application& app) override {
+        const auto deltaTime = app.get<FpsCounter>().deltaTime;
+        const auto& r = app.get<Renderer>();
 
-    EntityList::index_t camera_following_entity = EntityList::null_index;
-
-    struct KeyboardControls {
-        SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_SPACE;
-    };
-    struct KeyboardEntityController : EntityController {
-        KeyboardControls controls;
-        span<const bool> keyboard;
-        virtual void update_controls(Entity& own, const EntityList&, double deltaTime) const override {
+        {
             int8_t moving_dir_int = 0;
             const auto forced_dir = own.movement->forced_direction;
             if (keyboard[controls.left]) moving_dir_int -= 1;
@@ -62,14 +63,39 @@ struct GameClass : Application {
             }
             Direction moving_dir = moving_dir_int == 0 ? own.movement->direction : moving_dir_int > 0;
             own.movement->direction = moving_dir;
-
-            own.controls.up.update(deltaTime, keyboard[controls.up]);
-            own.controls.down.update(deltaTime, keyboard[controls.down]);
             own.controls.left.update(deltaTime, !moving_dir && moving_dir_int != 0);
             own.controls.right.update(deltaTime, moving_dir && moving_dir_int != 0);
-            own.controls.jump.update(deltaTime, keyboard[controls.jump]);
         }
-    };
+
+        own.controls.boost.update(deltaTime, SDL_GetMouseState(&mousepos.x, &mousepos.y) & SDL_BUTTON_MASK(SDL_BUTTON_LEFT));
+
+        {
+            auto campos = glm::vec2{r.camera.x, r.camera.y};
+            auto screenCenter = glm::vec2{r.get_screen_size()} / 2.f;
+
+            auto worldmousepos = (mousepos - screenCenter) * glm::vec2{1.f, -1.f} / (float)r.get_raw_zoom() + campos;
+            auto diff = glm::vec2{own.data.pos} - worldmousepos;
+
+            own.controls.focusDegrees = mth::fmod(-glm::degrees(std::atan2(diff.x, -diff.y)) + 360, 360);
+            debug_screen("a", own.controls.focusDegrees);
+        }
+
+        own.controls.up.update(deltaTime, keyboard[controls.up]);
+        own.controls.down.update(deltaTime, keyboard[controls.down]);
+        own.controls.jump.update(deltaTime, keyboard[controls.jump]);
+    }
+};
+
+struct GameClass : Application {
+    LightShaftSystem light_shafts;
+
+    Game::EntityList& entities = [&] -> Game::EntityList& {
+        this->ensure_class_added<Game::EntityList>([] { return new Game::EntityList(); });
+        return this->get<Game::EntityList>();
+    }();
+
+    EntityList::index_t camera_following_entity = EntityList::null_index;
+
     vector<EntityList::index_t> players{};
 
     using TexturedRectDescriptor = Renderer::TexturedRectDescriptor;
@@ -545,6 +571,9 @@ struct GameClass : Application {
                     inputs.do_inputs(event.key.key, 0.0f);
                     break;
             }
+            for (auto& [i, entity] : entities) {
+                entity->controller->digest_event(event);
+            }
         }
 
         {
@@ -577,7 +606,7 @@ struct GameClass : Application {
                 entitytrisindex.remove_entity(entity_id);
                 continue;
             }
-            entity->controller->update_controls(*entity, entities, dt);
+            entity->controller->update_controls(*entity, *this);
             entity->tick_all(*this, dt);
             if (entity->wants_to_despawn) should_clean_entities = true;
 

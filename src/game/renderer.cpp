@@ -191,6 +191,14 @@ class GameRenderer : public Base::Renderer {
     };
 
     SDL_Window* window = nullptr;
+
+    virtual glm::vec<2, int> get_screen_size() const override {
+        if (!window) return {-1, -1};
+        glm::vec<2, int> retval;
+        SDL_GetWindowSize(window, &retval.x, &retval.y);
+        return retval;
+    }
+
     WGPUInstance instance = nullptr;
     WGPUSurface surface = nullptr;
     WGPUAdapter adapter = nullptr;

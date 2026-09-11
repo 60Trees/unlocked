@@ -1,7 +1,9 @@
 #pragma once
 
+#include <SDL3/SDL_events.h>
 #include <base/renderer.hpp>
 #include <base/base.hpp>
+#include <cmath>
 #include <glm/vec2.hpp>
 #include <memory>
 #include "base/app.hpp"
@@ -70,7 +72,8 @@ namespace Game {
 
     struct EntityController {
         virtual ~EntityController() = default;
-        virtual void update_controls(Entity& own, const EntityList& others, double deltaTime) const {}
+        virtual void digest_event(SDL_Event& e) {}
+        virtual void update_controls(Entity& own, const Base::Application&) {}
     };
 
     struct EntitySwitcher {
@@ -118,6 +121,8 @@ namespace Game {
             ControlData up, down, left, right;
             ControlData boost;
             ControlData jump;
+            // NAN = not focused, 0-360 is angle
+            float focusDegrees = NAN;
         } controls;
 
         std::unique_ptr<EntityController> controller = std::make_unique<EntityController>();

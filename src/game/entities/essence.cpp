@@ -24,10 +24,8 @@ uint64_t visualRandom(T value, uint64_t start, uint64_t end) {
 
     uint64_t x = 0;
 
-    // Copy the object's bits into the low bits of x.
     __builtin_memcpy(&x, &value, sizeof(T));
 
-    // SplitMix64-style mixing.
     x += 0x9e3779b97f4a7c15ULL;
     x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
     x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
@@ -117,9 +115,7 @@ struct Essence : Entity {
 
         visual_rotation += fps.deltaTime * (360 * rps);
 
-        // TODO: (super fast) Learn how fmod works and how to properly do it
-        while (visual_rotation > 360) visual_rotation -= 360;
-        while (visual_rotation < 0) visual_rotation += 360;
+        visual_rotation = mth::fmod(visual_rotation + 360.f, 360.f);
 
         if (!does_render()) {
             layer.vertices.clear();

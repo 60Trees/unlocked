@@ -12,6 +12,7 @@
 #include <glm/vec2.hpp>
 
 #include "base.hpp"
+#include "glm/common.hpp"
 #include <utils.hpp>
 
 GETTER_DEFINITION(Base::BaseClass, GetRenderer);
@@ -64,6 +65,7 @@ namespace Base {
 
         virtual ushort addTextureFromBytes(std::string_view name, std::span<const char> bytes) = 0;
         virtual ushort getTextureID(std::string_view name) = 0;
+        virtual glm::vec<2, int> get_screen_size() const = 0;
 
         struct ScreenSpace {
             short x, y;
@@ -165,7 +167,7 @@ namespace Base {
                 // double camera_speed_y = mth::abs(target_y - y);
             }
 
-            void update_camera(double dt) {
+            inline void update_camera(double dt) {
                 x += (target_x - x) * dt * std::abs(target_x - x);
                 y += (target_y - y) * dt * std::abs(target_x - x);
 
@@ -178,11 +180,19 @@ namespace Base {
             }
 
             double zoom = 160, _target_zoom = 0, _real_zoom = 0, zoom_speed = 15, zoom_snap_distance = 0.01;
-            void update_zoom(double dt) {
+
+            inline double get_raw_zoom(const Renderer& r) const {
+                auto minscreen = glm::min(r.get_screen_size().x, r.get_screen_size().y);
+                return minscreen / _target_zoom;
+            }
+
+            inline void update_zoom(double dt) {
                 _real_zoom += (_target_zoom - _real_zoom) / 2 * dt * zoom_speed;
                 if (mth::abs(_target_zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = _target_zoom;
             }
         } camera;
+
+        inline double get_raw_zoom() const { return camera.get_raw_zoom(*this); }
 
         /**
          * @brief
