@@ -10,11 +10,20 @@ using namespace Game;
 using namespace Base;
 using namespace std;
 
-#include <cstdint>
-#include <type_traits>
-#include <limits>
-
 extern "C" double gravity_multiplier() { return 1; }
+
+namespace {
+    inline void sanitize(double& v, double fallback = 0.0) {
+        if (!std::isfinite(v)) v = fallback;
+    }
+    inline void sanitize(float& v, float fallback = 0.0f) {
+        if (!std::isfinite(v)) v = fallback;
+    }
+    inline void clamp_magnitude(double& v, double max_abs) {
+        if (v > max_abs) v = max_abs;
+        if (v < -max_abs) v = -max_abs;
+    }
+}  // namespace
 
 struct Essence : Entity {
     Essence() { std::cout << "Essence " << this << ": " << *this << std::endl; }
@@ -38,12 +47,13 @@ struct Essence : Entity {
     glm::vec2 render_offset{};
     bool render_initialized = false;
 
+    Entity* last_seen_parent = nullptr;
+
     void spawn(Base::Application& app, const ldtk::Entity* e) override {
         Entity::spawn(app, e);
         bobbing_sin_offset = visualRandom(this, 0, 20);
     }
 
-    /// @note Returns if parent already exists.
     void look_for_parent(Base::Application& app) {
         if (stage == LEAVING_ORBIT) {
             for (const auto& [i, e] : app.get<EntityList>())
@@ -62,7 +72,11 @@ struct Essence : Entity {
         if (stage != UNOWNED) return;
 
         for (const auto& [i, e] : app.get<EntityList>())
-            if (e->has_attribute("pick_up_triangles") && e->colliding_with(this)) e->adopt(this);
+            if (e->has_attribute("pick_up_triangles") && e->colliding_with(this)) {
+                e->adopt(this);
+                break;  // stop at the first valid parent -- don't hand the same essence to
+                        // every overlapping pick_up_triangles entity in the same tick
+            }
     }
 
     void update_orbit_rotation(size_t own_index, size_t tri_count, Base::Application& app, Entity& p) {
@@ -106,37 +120,59 @@ struct Essence : Entity {
     ControlData is_owned;
     Entity* previous_parent = nullptr;
 
-    std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",triggers,"; }
-
-
+    bool has_attribute(std::string_view to_find) const override {
+        if (to_find == "triggers") return !parent;
+        return Entity::has_attribute(to_find);
+    }
 
     void tick(Base::Application& app) override {
         Entity::tick(app);
 
+        sanitize(data.pos.x);
+        sanitize(data.pos.y);
+        sanitize(data.vel.x);
+        sanitize(data.vel.y);
+        clamp_magnitude(data.vel.x, 1e5);
+        clamp_magnitude(data.vel.y, 1e5);
+
         orbit_around_radius = 0;
 
         look_for_parent(app);
+
+        if (parent && last_seen_parent && parent != last_seen_parent) {
+            render_initialized = false;
+        }
+        last_seen_parent = parent;
+
         if (!parent) {
             is_owned.update(app, false);
 
             data.vel += get_gravity() * app.get<FpsCounter>().deltaTime * gravity_multiplier();
-
-            debug_screen(this, "ESSENCE\n- Stage: " << stage_str(stage) << "\n- Orphaned");
+            sanitize(data.vel.x);
+            sanitize(data.vel.y);
             return;
         }
         Entity& p = *parent;
 
         size_t own_index = 0;
         size_t tri_count = 0;
+        bool found_self = false;
 
         for (Entity* sibling : p.children) {
+            if (!sibling) continue;  // parent's child list can contain stale/despawned entries
             auto other_triangle = dynamic_cast<Essence*>(sibling);
             if (!other_triangle) continue;
-            if (this == sibling) own_index = tri_count;
+            if (this == sibling) {
+                own_index = tri_count;
+                found_self = true;
+            }
             tri_count++;
         }
 
-        debug_screen(this, "ESSENCE\n- Stage: " << stage_str(stage) << "\n- Group size: " << tri_count << "\n- Own index: " << own_index);
+        if (!found_self || tri_count == 0) {
+            is_owned.update(app, false);
+            return;
+        }
 
         update_orbit_rotation(own_index, tri_count, app, p);
 
@@ -145,7 +181,8 @@ struct Essence : Entity {
             stage = LEAVING_ORBIT;
             previous_parent = parent;
 
-            const auto dir = p.controls.focusDegrees;
+            auto dir = p.controls.focusDegrees;
+            sanitize(dir);  // a corrupted parent shouldn't be able to NaN-poison us or itself below
 
             const double speed = 300;
             data.pos = p.data.pos;
@@ -153,11 +190,20 @@ struct Essence : Entity {
             const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
             const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
 
-            const glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+            glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+            sanitize(boost.x);
+            sanitize(boost.y);
+
             data.vel = p.data.vel + boost;
+            sanitize(data.vel.x);
+            sanitize(data.vel.y);
+
             p.data.vel += boost * -0.5;
+            sanitize(p.data.vel.x);
+            sanitize(p.data.vel.y);
 
             p.disown(this, true);
+            last_seen_parent = nullptr;  // this disown is intentional, not a "silent" reparent
         }
 
         is_owned.update(app, !(!parent));
@@ -175,7 +221,7 @@ struct Essence : Entity {
         // revolutions per second
         constexpr double rps = 0.5;
 
-        visual_rotation += fps.deltaTime * (360 * rps);
+        visual_rotation += fps.deltaTime * (360 * rps) * 0.5;
         if (!parent) visual_rotation += (abs(data.vel.x) + abs(data.vel.y)) * fps.deltaTime * 10;
 
         visual_rotation = mth::fmod(visual_rotation + 360.f, 360.f);
@@ -234,6 +280,14 @@ struct Essence : Entity {
         if (!render_initialized) {
             render_offset = {target_offset.x, target_offset.y};
             render_initialized = true;
+        }
+
+        // If the smoothing accumulator itself ever went non-finite (e.g. picked up a NaN from a
+        // bad frame before tick()'s sanitizing existed, or a save/replay glitch), it would stay
+        // broken forever -- `x += (target - x) * t` never recovers from NaN on its own. Snap it
+        // back to the target instead of silently rendering garbage every frame after.
+        if (!std::isfinite(render_offset.x) || !std::isfinite(render_offset.y)) {
+            render_offset = {target_offset.x, target_offset.y};
         }
 
         float t = 1.0f - std::exp(-12.0f * float(fps.deltaTime));

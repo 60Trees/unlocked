@@ -47,7 +47,7 @@ void Base::FpsCounter::loop() {
         lastFpsUpdate = now;
     }
 
-    const float fps = 1000 / deltaTime;
+    const float fps = 1.0 / deltaTime;
     if (fps > high || high_time_ago > 3) {
         high = fps;
         high_time_ago = 0;

@@ -1,6 +1,9 @@
+#define what_is_going_on 3
+
 #include <base/app.hpp>
 #include <base/renderer.hpp>
 #include <cmath>
+#include <random>
 #include <game/base/entity.hpp>
 #include <game/base/entity_list.hpp>
 
@@ -45,6 +48,7 @@ struct KeyboardControls {
     SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_SPACE;
 };
 
+#ifdef what_is_going_on
 struct RandomController : EntityController {
     uint seed = 0;
     uint tick_count = 0;
@@ -56,7 +60,7 @@ struct RandomController : EntityController {
 
         time_left -= deltaTime;
         if (time_left < 0) {
-            time_left = static_cast<float>(visualRandom(&own + seed, 200, 400));
+            time_left = Random::real(1.0, 3.0, 2);
             seed++;
             Action = static_cast<typeof(Action)>(visualRandom(&own + seed, 0, 5));
             seed++;
@@ -90,6 +94,8 @@ struct RandomController : EntityController {
         tick_count++;
     }
 };
+#endif
+
 struct KeyboardEntityController : EntityController {
     KeyboardControls controls;
     span<const bool> keyboard;
@@ -427,11 +433,13 @@ struct GameClass : Application {
             if (name == "PlayerStart") {
                 const auto pos = entity.getPosition();
 
-                for (int i = 0; i < 20; i++)
+#ifdef what_is_going_on
+                for (int i = 0; i < what_is_going_on; i++)
                     [&](Entity& e) {
                         e.data.pos = {pos.x, -pos.y};
                         e.controller = make_unique<RandomController>();
                     }(entities[entities.spawn_entity("player")]);
+#endif
 
                 level_data.player_starts.push_back({pos.x, -pos.y});
                 return;
@@ -491,6 +499,10 @@ struct GameClass : Application {
                 return;
             }
 
+#ifdef what_is_going_on
+// if (name == "Essence")
+//     for (int i = 0; i < 5; i++) entities.spawn_entity(name, &entity);
+#endif
             entities.spawn_entity(name, &entity);
         };
 
@@ -642,6 +654,7 @@ struct GameClass : Application {
                                 if (e->name() != "Essence") continue;
                                 if (e->parent) e->parent->disown(e.get());
                                 e->data.pos = worldmousepos;
+                                e->data.vel = {Random::real(-100, 100, 3), Random::real(-100, 100, 3)};
                             }
                         } break;
                     }
@@ -671,9 +684,8 @@ struct GameClass : Application {
 
         world_handler.renderDirtyLevels(*leveltris);
 
-        for (const auto i : players) {
-            auto& player = entities[i];
-            if (auto* controller = dynamic_cast<KeyboardEntityController*>(player.controller.get())) {
+        for (auto& [i, e] : entities) {
+            if (auto* controller = dynamic_cast<KeyboardEntityController*>(e->controller.get())) {
                 int size;
                 const bool* data = SDL_GetKeyboardState(&size);
                 controller->keyboard = std::span<const bool>(data, (size_t)size);

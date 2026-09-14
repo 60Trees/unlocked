@@ -87,7 +87,7 @@ namespace Game {
 
         std::vector<std::string> attributes{};
         virtual std::string get_default_attributes() const { return {}; };
-        inline bool has_attribute(std::string_view to_find) const {
+        virtual bool has_attribute(std::string_view to_find) const {
             return std::find(attributes.begin(), attributes.end(), to_find) != attributes.end();
         }
 
@@ -143,8 +143,13 @@ namespace Game {
         Entity* parent = nullptr;
 
         inline void adopt(Entity* new_child) {
+            // Fully transfer ownership -- an entity must never be a "child" of more than one parent,
+            // or every parent's tick_all() will keep fighting over its ->parent pointer forever.
+            if (new_child->parent && new_child->parent != this) {
+                new_child->parent->disown(new_child, true);
+            }
+
             new_child->parent = this;
-            // if it's already a child then ignore
             if (std::find(children.begin(), children.end(), new_child) != children.end()) return;
 
             children.push_back(new_child);

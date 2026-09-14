@@ -31,6 +31,34 @@ uint64_t visualRandom(T value, uint64_t start, uint64_t end) {
 #include <cstdint>
 #include <memory>
 #include <map>
+#include <random>
+
+// <AI>
+namespace Random {
+    inline std::mt19937& engine() {
+        static std::mt19937 rng{std::random_device{}()};
+        return rng;
+    }
+
+    template <typename T>
+    T integer(T x, T y) {
+        std::uniform_int_distribution<T> dist{x, y};
+        return dist(engine());
+    }
+
+    // Floating point: [x, y), rounded to `decimal_places`
+    template <typename T>
+    T real(T x, T y, int decimal_places) {
+        const T scale = std::pow(T{10}, decimal_places);
+
+        std::uniform_int_distribution<long long> dist{
+            static_cast<long long>(std::ceil(x * scale)), static_cast<long long>(std::ceil(y * scale)) - 1};
+
+        return static_cast<T>(dist(engine())) / scale;
+    }
+}  // namespace Random
+// </AI>
+
 #include <stdexcept>
 #include <print>
 #include <ostream>
@@ -215,4 +243,3 @@ template <typename T>
 inline std::string number_to_hex_string(const T& num, const size_t bytes_to_print = sizeof(T)) {
     return uint8_to_hex_string((uint8_t*)(&num), bytes_to_print);
 }
-

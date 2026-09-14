@@ -893,6 +893,22 @@ void GameRenderer::ensureParamsScratch(size_t bytesNeeded) {
     WGPUBindGroupEntry e{.binding = 0, .buffer = paramsScratch, .size = kParamMax};
     WGPUBindGroupDescriptor d{.label = "Params Scratch BG"_wgpu, .layout = paramsBGL, .entryCount = 1, .entries = &e};
     paramsScratchBG = wgpuDeviceCreateBindGroup(device, &d);
+
+    // Post-effect bind groups bind the paramsScratch WGPUBuffer handle directly (see
+    // buildPostEffectBindGroup), captured at the time they were built. Now that the buffer has
+    // been reallocated, those bind groups are dangling — rebuild them immediately rather than
+    // waiting for the next compile_used_shaders() call, since this frame's post chain still runs
+    // against them further down in loop().
+    for (const PostEffect& fx : post_queue) {
+        PostKey key{fx.pixel_shader.data()};
+        auto it = postPipelines.find(key);
+        if (it == postPipelines.end()) continue;
+        WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(it->second.pipeline, 0);
+        for (int i = 0; i < 2; ++i) {
+            if (it->second.bg[i]) wgpuBindGroupRelease(it->second.bg[i]);
+            it->second.bg[i] = buildPostEffectBindGroup(bgl, fx, i);
+        }
+    }
 }
 
 void render_debug_screen();
