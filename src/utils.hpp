@@ -1,8 +1,31 @@
 #pragma once
 
+#include <limits>
 constexpr bool X_AXIS = 0, Y_AXIS = 1;
 constexpr bool LEFT = 0, RIGHT = 1;
 using Direction = bool;
+
+#include <cstdint>
+#include <type_traits>
+
+template <typename T>
+    requires(std::is_trivially_copyable_v<T> && sizeof(T) <= sizeof(uint64_t))
+uint64_t visualRandom(T value, uint64_t start, uint64_t end) {
+    static_assert(std::numeric_limits<uint64_t>::digits == 64);
+
+    uint64_t x = 0;
+
+    __builtin_memcpy(&x, &value, sizeof(T));
+
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    x ^= x >> 31;
+
+    if (start > end) std::swap(start, end);
+
+    return start + x % (end - start + 1);
+}
 
 // <AI>
 #include <cstdint>

@@ -70,7 +70,7 @@ namespace Game {
             visible = !e->getField<ldtk::FieldType::Bool>("Invisible").value_or(false);
         };
 
-        void tick(Base::Application& app, double) override {
+        void tick(Base::Application& app) override {
             colour.set_opaque();
             // for (auto& Base)
             auto& state = app.get<PuzzleState>();

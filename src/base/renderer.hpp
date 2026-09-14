@@ -11,6 +11,7 @@
 #include <vector>
 #include <glm/vec2.hpp>
 
+#include "SDL3/SDL_mouse.h"
 #include "base.hpp"
 #include "glm/common.hpp"
 #include <utils.hpp>
@@ -193,6 +194,15 @@ namespace Base {
         } camera;
 
         inline double get_raw_zoom() const { return camera.get_raw_zoom(*this); }
+        inline glm::vec2 get_world_mouse_pos() const {
+            glm::vec2 mousepos = {};
+
+            SDL_GetMouseState(&mousepos.x, &mousepos.y);
+            auto campos = glm::vec2{camera.x, camera.y};
+            auto screenCenter = glm::vec2{get_screen_size()} / 2.f;
+
+            return (mousepos - screenCenter) * glm::vec2{1.f, -1.f} / (float)get_raw_zoom() + campos;
+        }
 
         /**
          * @brief

@@ -1,40 +1,20 @@
 #include <cmath>
-#include <complex>
 #include <game/base/entity.hpp>
 #include <iostream>
 #include "base/app.hpp"
 #include "glm/ext/vector_float2.hpp"
 #include "utils.hpp"
 #include <game/base/entity_list.hpp>
-#include <iterator>
 
 using namespace Game;
 using namespace Base;
 using namespace std;
 
-#include <bit>
 #include <cstdint>
 #include <type_traits>
 #include <limits>
 
-template <typename T>
-    requires(std::is_trivially_copyable_v<T> && sizeof(T) <= sizeof(uint64_t))
-uint64_t visualRandom(T value, uint64_t start, uint64_t end) {
-    static_assert(std::numeric_limits<uint64_t>::digits == 64);
-
-    uint64_t x = 0;
-
-    __builtin_memcpy(&x, &value, sizeof(T));
-
-    x += 0x9e3779b97f4a7c15ULL;
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-    x ^= x >> 31;
-
-    if (start > end) std::swap(start, end);
-
-    return start + x % (end - start + 1);
-}
+extern "C" double gravity_multiplier() { return 1; }
 
 struct Essence : Entity {
     Essence() { std::cout << "Essence " << this << ": " << *this << std::endl; }
@@ -58,47 +38,129 @@ struct Essence : Entity {
     glm::vec2 render_offset{};
     bool render_initialized = false;
 
-    void tick(Base::Application& app, double dt) override {
-        Entity::tick(app, dt);
+    void spawn(Base::Application& app, const ldtk::Entity* e) override {
+        Entity::spawn(app, e);
+        bobbing_sin_offset = visualRandom(this, 0, 20);
+    }
+
+    /// @note Returns if parent already exists.
+    void look_for_parent(Base::Application& app) {
+        if (stage == LEAVING_ORBIT) {
+            for (const auto& [i, e] : app.get<EntityList>())
+                if (e->colliding_with(this) && previous_parent == e.get()) return;
+
+            previous_parent = nullptr;
+            stage = UNOWNED;
+            return;
+        }
 
         if (parent) {
-            data.pos = parent->data.hitbox_center();
-
-            data.pos.x -= data.size.x / 2;
-            data.pos.y -= data.size.y / 2;
-
-            orbit_around_radius = max(parent->data.size.x, parent->data.size.y) * 0.5;
-
-            size_t own_index = 0;
-            size_t triangle_count = 0;
-
-            for (const Entity* sibling : parent->children) {
-                const Essence* other_triangle = dynamic_cast<const Essence*>(sibling);
-                if (!other_triangle) continue;
-                if (this == sibling) own_index = triangle_count;
-                triangle_count++;
-            }
-
-            float rotation_offset = [&] {
-                //[[assume(triangle_count > 0)]];
-                const float spacing = 360.0 / triangle_count;
-                return spacing * own_index;
-            }();
-
-            auto& fps = app.get<Base::FpsCounter>();
-            const auto& seconds_since_start = fps.seconds_since_start;
-
-            constexpr float rps = -0.2;
-
-            orbit_rotation = rotation_offset + seconds_since_start * (360 * rps);
-            while (orbit_rotation > 360) orbit_rotation -= 360;
-            while (orbit_rotation < 0) orbit_rotation += 360;
-        } else {
-            orbit_around_radius = 0;
-            for (const auto& [i, e] : app.get<EntityList>())
-                if (e->name() == "player" && e->colliding_with(this)) e->adopt(this);
+            stage = OWNED;
+            return;
         }
-        bobbing_sin_offset = visualRandom(this, 0, 20);
+        if (stage == OWNED) stage = UNOWNED;
+        if (stage != UNOWNED) return;
+
+        for (const auto& [i, e] : app.get<EntityList>())
+            if (e->has_attribute("pick_up_triangles") && e->colliding_with(this)) e->adopt(this);
+    }
+
+    void update_orbit_rotation(size_t own_index, size_t tri_count, Base::Application& app, Entity& p) {
+        data.pos = p.data.hitbox_center();
+
+        data.pos.x -= data.size.x / 2;
+        data.pos.y -= data.size.y / 2;
+
+        orbit_around_radius = max(p.data.size.x, p.data.size.y) * 0.5;
+
+        const float rotation_offset = [&] {
+            //[[assume(triangle_count > 0)]];
+            const float spacing = 360.0 / tri_count;
+            return spacing * own_index;
+        }();
+
+        const auto& seconds_since_start = app.get<Base::FpsCounter>().seconds_since_start;
+
+        constexpr float rps = -0.2;
+
+        orbit_rotation = mth::fmod(rotation_offset + seconds_since_start * (360 * rps) + 360, 360);
+    }
+
+    enum class Stage : char { OWNED = 'o', LEAVING_ORBIT = 'l', UNOWNED = 'u' } stage = UNOWNED;
+    constexpr static Stage OWNED = Stage::OWNED;
+    constexpr static Stage LEAVING_ORBIT = Stage::LEAVING_ORBIT;
+    constexpr static Stage UNOWNED = Stage::UNOWNED;
+
+    constexpr inline std::string stage_str(Stage s) {
+        switch (s) {
+            case Stage::OWNED:
+                return "OWNED";
+            case Stage::LEAVING_ORBIT:
+                return "LEAVING_ORBIT";
+            case Stage::UNOWNED:
+                return "UNOWNED";
+        }
+        return "INVALID (" + std::to_string(static_cast<int>(s)) + ")";
+    };
+
+    ControlData is_owned;
+    Entity* previous_parent = nullptr;
+
+    std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",triggers,"; }
+
+
+
+    void tick(Base::Application& app) override {
+        Entity::tick(app);
+
+        orbit_around_radius = 0;
+
+        look_for_parent(app);
+        if (!parent) {
+            is_owned.update(app, false);
+
+            data.vel += get_gravity() * app.get<FpsCounter>().deltaTime * gravity_multiplier();
+
+            debug_screen(this, "ESSENCE\n- Stage: " << stage_str(stage) << "\n- Orphaned");
+            return;
+        }
+        Entity& p = *parent;
+
+        size_t own_index = 0;
+        size_t tri_count = 0;
+
+        for (Entity* sibling : p.children) {
+            auto other_triangle = dynamic_cast<Essence*>(sibling);
+            if (!other_triangle) continue;
+            if (this == sibling) own_index = tri_count;
+            tri_count++;
+        }
+
+        debug_screen(this, "ESSENCE\n- Stage: " << stage_str(stage) << "\n- Group size: " << tri_count << "\n- Own index: " << own_index);
+
+        update_orbit_rotation(own_index, tri_count, app, p);
+
+        if (stage == OWNED && p.controls.boost.just_pressed() && own_index == 0) {
+            p.controls.boost.time = app.get<FpsCounter>().deltaTime;
+            stage = LEAVING_ORBIT;
+            previous_parent = parent;
+
+            const auto dir = p.controls.focusDegrees;
+
+            const double speed = 300;
+            data.pos = p.data.pos;
+
+            const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
+            const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
+
+            const glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+            data.vel = p.data.vel + boost;
+            p.data.vel += boost * -0.5;
+
+            p.disown(this, true);
+        }
+
+        is_owned.update(app, !(!parent));
     }
 
     void render(Base::Application& app, Base::Renderer::VertexLayer& layer) override {
@@ -114,6 +176,7 @@ struct Essence : Entity {
         constexpr double rps = 0.5;
 
         visual_rotation += fps.deltaTime * (360 * rps);
+        if (!parent) visual_rotation += (abs(data.vel.x) + abs(data.vel.y)) * fps.deltaTime * 10;
 
         visual_rotation = mth::fmod(visual_rotation + 360.f, 360.f);
 

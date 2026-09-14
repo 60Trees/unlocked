@@ -1,4 +1,5 @@
 #include "entity.hpp"
+#include "base/app.hpp"
 #include "entity_list.hpp"
 #include <cmath>
 #include <game/base/world_handler.hpp>
@@ -9,6 +10,41 @@ using namespace std;
 using namespace Base;
 
 Game::Entity::vec2_t Game::Entity::get_gravity() { return {0.0, -700}; };
+
+// <AI>
+std::vector<std::string> attributes_from_string(const std::string& raw) {
+    std::vector<std::string> out;
+    std::string current;
+
+    auto push_trimmed = [&](std::string s) {
+        // trim left
+        size_t start = s.find_first_not_of(" \t\n\r");
+        if (start == std::string::npos) return; // all whitespace → ignore
+
+        // trim right
+        size_t end = s.find_last_not_of(" \t\n\r");
+        s = s.substr(start, end - start + 1);
+
+        if (!s.empty())
+            out.push_back(std::move(s));
+    };
+
+    for (char c : raw) {
+        if (c == ',') {
+            push_trimmed(current);
+            current.clear();
+        } else {
+            current.push_back(c);
+        }
+    }
+
+    // last element
+    push_trimmed(current);
+
+    return out;
+}
+// </AI>
+
 void Game::Entity::spawn(Base::Application& app, const ldtk::Entity* e) {
     app.ensure_class_added<EntityList>([] { return new EntityList(); });
     data = get_defaults();
@@ -17,8 +53,12 @@ void Game::Entity::spawn(Base::Application& app, const ldtk::Entity* e) {
         data.pos.x = e->getPosition().x;
         data.pos.y = -e->getPosition().y;
     }
+
+    attributes = attributes_from_string(get_default_attributes());
 }
-void Game::Entity::tick_all(Base::Application& app, double deltaTime) {
+
+void Game::Entity::tick_all(Base::Application& app) {
+    const auto deltaTime = app.get<FpsCounter>().deltaTime;
     // Disown dead children
     children.erase(remove_if(children.begin(), children.end(), [](Entity* i) { return !i; }), children.end());
 
@@ -29,8 +69,8 @@ void Game::Entity::tick_all(Base::Application& app, double deltaTime) {
         return;
     }
 
-    tick_position(app, deltaTime);
-    tick(app, deltaTime);
+    tick_position(app);
+    tick(app);
 }
 
 bool Game::Entity::colliding_with(const Entity* other) const {
@@ -45,15 +85,14 @@ constexpr inline void cap(double& x, double max) {
     if (x < -max) x = -max;
 }
 
-void Game::Entity::tick_position(Base::Application& app, double deltaTime) {
+void Game::Entity::tick_position(Base::Application& app) {
+    const auto deltaTime = app.get<FpsCounter>().deltaTime;
+
     constexpr bool X_AXIS = 0, Y_AXIS = 1;
     constexpr bool LEFT = 0, RIGHT = 1;
 
     cap(data.vel.x, 1e6);
     cap(data.vel.y, 1e6);
-
-    constexpr double tick_speed_multiplier = 1.0;
-    deltaTime *= tick_speed_multiplier;
 
     WorldHandler& handler = *GetWorldHandler(false);
 
@@ -175,8 +214,8 @@ void Game::Entity::tick_position(Base::Application& app, double deltaTime) {
     } else if (data.vel.x != 0)
         data.vel.x = 0;
 
-    data.colliding_with.left.update(deltaTime, colliding_left);
-    data.colliding_with.right.update(deltaTime, colliding_right);
+    data.colliding_with.left.update(app, colliding_left);
+    data.colliding_with.right.update(app, colliding_right);
 
     bool colliding_up = false, colliding_down = false;
     if (abs(data.vel.y) > vel_snap_distance) {
@@ -205,10 +244,10 @@ void Game::Entity::tick_position(Base::Application& app, double deltaTime) {
 
     // data.vel *= 1.0 - mat.drag * deltaTime;
 
-    data.colliding_with.up.update(deltaTime, colliding_up);
-    data.colliding_with.down.update(deltaTime, colliding_down);
+    data.colliding_with.up.update(app, colliding_up);
+    data.colliding_with.down.update(app, colliding_down);
 
-    //if (collided) debug_screen(this, "Entity " << this << ": Speed: " << speed);
+    // if (collided) debug_screen(this, "Entity " << this << ": Speed: " << speed);
 
     // constexpr double threshold = 80;
     // constexpr double max = 300;
@@ -218,7 +257,8 @@ void Game::Entity::tick_position(Base::Application& app, double deltaTime) {
     // }
 }
 
-void Game::ControlData::update(double deltaTime, bool new_pressed) {
+void Game::ControlData::update(const Base::Application& app, bool new_pressed) {
+    const auto deltaTime = app.get<FpsCounter>().deltaTime;
     if (new_pressed != pressed)
         time = 0;
     else {

@@ -146,10 +146,10 @@ struct Door : PuzzleObject {
         return {width, height};
     }
 
-    void tick(Base::Application& app, double dt) override {
-        PuzzleObject::tick(app, dt);
+    void tick(Base::Application& app) override {
+        PuzzleObject::tick(app);
 
-        is_open.update(dt, is_currently_open(app));
+        is_open.update(app, is_currently_open(app));
 
         auto& worldhandler = app.get<WorldHandler>();
         auto& placedlevel = worldhandler.all_level_tilemaps[own_layer->level];

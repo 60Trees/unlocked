@@ -8,10 +8,11 @@
 #include <game/base/entity.hpp>
 
 namespace Game {
-    struct Player : Entity, EntitySwitcher {
+    struct Player : Entity {
         Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
         void spawn(Base::Application&, const ldtk::Entity* e = nullptr) override;
+        std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",pick_up_triangles,triggers,"; }
     };
 }  // namespace Game
 
@@ -48,6 +49,7 @@ template <typename T>
 inline bool is_doing(const Entity& e) {
     return dynamic_cast<T*>(e.movement.get());
 }
+extern "C" double gravity_multiplier();
 
 namespace PlayerMovements {
     struct Walk : EntityMovement {
@@ -179,7 +181,7 @@ namespace PlayerMovements {
             if (isnan(time_spent_walking)) time_spent_walking = 0;
             if (isinf(time_spent_walking)) time_spent_walking = 0;
 
-            e.data.vel += e.get_gravity() * deltaTime;
+            e.data.vel += e.get_gravity() * deltaTime * gravity_multiplier();
 
             const auto spdmultiplier = speed_multiplier(_e);
             const auto dragmultiplier = drag_multiplier(_e);

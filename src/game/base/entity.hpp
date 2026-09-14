@@ -28,7 +28,7 @@ namespace Game {
          * >0 means for how many seconds it has been pressed or
          * released
          */
-        Duration time;
+        Duration time = INFINITY;
 
         /**
          * @note Not dependant on `pressed` (unlike `time`)
@@ -37,15 +37,17 @@ namespace Game {
          * (1.0f per second). It is limited by both
          * `upper_charge_limit` and `lower_charge_limit`.
          */
-        float charge;
+        float charge = 0;
         constexpr static float upper_charge_limit = 0.5f;
         constexpr static float lower_charge_limit = 0.0f;
 
-        bool pressed;
+        bool pressed = false;
 
         constexpr inline operator bool() const { return pressed; }
+        inline bool just_pressed() { return pressed && time == 0; }
+        inline bool just_released() { return !pressed && time == 0; }
 
-        void update(double deltaTime, bool new_pressed);
+        void update(const Base::Application&, bool new_pressed);
     };
 
     struct Hitbox {
@@ -76,16 +78,18 @@ namespace Game {
         virtual void update_controls(Entity& own, const Base::Application&) {}
     };
 
-    struct EntitySwitcher {
-        virtual ~EntitySwitcher() = default;
-    };
-
     struct Entity {
         using vec2_t = glm::vec<2, double>;
         Hitbox data;
 
         std::shared_ptr<EntityMovement> movement;
         std::vector<std::shared_ptr<EntityAbility>> current_abilities;
+
+        std::vector<std::string> attributes{};
+        virtual std::string get_default_attributes() const { return {}; };
+        inline bool has_attribute(std::string_view to_find) const {
+            return std::find(attributes.begin(), attributes.end(), to_find) != attributes.end();
+        }
 
         /// @detail Does nothing if `T` cant convert to EntityMovement
         template <typename T>
@@ -145,19 +149,23 @@ namespace Game {
 
             children.push_back(new_child);
         }
-        inline void disown(Entity* unwanted_child) {
+        inline void disown(Entity* unwanted_child, bool silent = false) {
             // if it's already disowed then ignore
-            if (std::find(children.begin(), children.end(), unwanted_child) != children.end()) return;
+            if (std::find(children.begin(), children.end(), unwanted_child) == children.end()) return;
+            if (!silent) unwanted_child->when_disowned();
             children.erase(remove_if(children.begin(), children.end(), [&](Entity* i) { return i == unwanted_child; }), children.end());
             unwanted_child->parent = nullptr;
         }
 
         virtual void spawn(Base::Application& app, const ldtk::Entity* e = nullptr);
 
-        virtual void tick_all(Base::Application& app, double deltaTime);
-        virtual void tick(Base::Application& app, double deltaTime) {}
-        virtual void tick_position(Base::Application& app, double deltaTime);
+        virtual void tick_all(Base::Application& app);
+        virtual void tick(Base::Application& app) {}
+        virtual void tick_position(Base::Application& app);
         virtual void despawn() {}
+
+        /// Ran directly before it will be disowned, so `parent` is still valid
+        virtual void when_disowned() {}
 
         Duration pause_time = 0.0f;
 

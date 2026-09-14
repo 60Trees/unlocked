@@ -40,11 +40,11 @@ struct Lever : PuzzleObject {
         return {.top_left = top_left, .size = {16, 16}, .tileset = "assets/buttons_n_shi.png", .direction = RIGHT};
     }
 
-    void tick(Base::Application& app, double dt) override {
-        PuzzleObject::tick(app, dt);
+    void tick(Base::Application& app) override {
+        PuzzleObject::tick(app);
 
         for (const auto& [i, e] : app.get<EntityList>())
-            if (e.get() != this && dynamic_cast<Game::EntitySwitcher*>(e.get()) && e->colliding_with(this)) {
+            if (e.get() != this && e->has_attribute("triggers") && e->colliding_with(this)) {
                 const auto vel = app.get<EntityList>()[i].data.vel.x;
                 current_direction = vel == 0 ? current_direction : (vel > 0);
             }
