@@ -162,7 +162,7 @@ struct GameClass : Application {
     using ColouredRectDescriptor = Renderer::ColouredRectDescriptor;
 
     // New pixel shader for the saturation post effect.
-    // prevTex, prevSamp, params, and VSOut are already declared by buildPostPipeline() —
+    // prevTex, prevSamp, params, and VSOut are already declared by buildPostPipeline() --
     // this only needs to define fs_main.
     static constexpr string_view saturationPS = R"(
     @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
@@ -204,12 +204,23 @@ struct GameClass : Application {
         }
         void remove_entity(EntityList::index_t entity_id) {
             if (!_raw.contains(entity_id)) return;
-            if (_raw[entity_id] != entitytris->size() - 1) {
-                EntityList::index_t entity_to_swap = entitytris->size() - 1;
-                std::swap(_raw[entity_to_swap], _raw[entitytris->size() - 1]);
-                _raw[entity_to_swap] = entity_id;
+
+            size_t idx = _raw[entity_id];
+            size_t last = entitytris->size() - 1;
+
+            if (idx != last) {
+                // swap vertex data
+                std::swap((*entitytris)[idx], (*entitytris)[last]);
+
+                // fix index map
+                EntityList::index_t swapped_entity = 0;
+                for (auto& [eid, i] : _raw)
+                    if (i == last) swapped_entity = eid;
+
+                _raw[swapped_entity] = idx;
             }
-            _raw.erase(entitytris->size() - 1);
+
+            _raw.erase(entity_id);
             entitytris->pop_back();
         }
         [[nodiscard]] inline bool contains(EntityList::index_t entity_id) const { return _raw.contains(entity_id); }
@@ -256,7 +267,7 @@ struct GameClass : Application {
         float pixelSize;
         float _pad[3];
     };
-    DitherBgParams ditherBgParams{};  // member of GameClass — must outlive the frame it's uploaded on
+    DitherBgParams ditherBgParams{};  // member of GameClass -- must outlive the frame it's uploaded on
 
     static constexpr uint32_t pack_rgba_from_rrggbb(uint32_t rrggbb) {
         rrggbb &= 0xFFFFFF;  // ignore/require: only RRGGBB, top byte is never colour data
@@ -405,24 +416,29 @@ struct GameClass : Application {
     };
 
     // <AI>
-    // Resolves "the next level" for a Finish-triggered level switch. Nothing in the files
-    // you've shared defines level sequencing/streaming (no world_handler.hpp), so this is
-    // an integration stub -- wire it up to however your project decides what level comes
-    // next and loads/swaps it into world_handler.
-    struct NextLevelTarget {
-        PlacedLevel* level = nullptr;
-        LevelData* data = nullptr;
-    };
-    // <AI>
+    // A "game entity" (Entity*, owned by EntityList) is the live, ticking thing that moves
+    // and renders every frame. An "ldtk entity" (ldtk::Entity) is just a static declaration
+    // inside the level file -- populate_level() reads each one once, at level-load time, and
+    // either spawns a game entity for it (entities.spawn_entity) or -- for PlayerStart /
+    // Finish / NoFinish / ShareFinish / Camera* -- stores it as a plain Hitbox/bound inside
+    // LevelData instead, with no game entity created at all. Everything below that deals
+    // with "the next level" only ever creates or destroys game entities; ldtk entities are
+    // read-only data that populate_level() alone is responsible for parsing.
+
+    static LevelData& level_data_of(PlacedLevel& placed) { return *dynamic_cast<LevelData*>(placed.usrdata.get()); }
+
     // Finds `current_ldtk_level`'s index within world 0's level list (world 0 matches what
-    // init() uses: world_handler.getlevel(0, 0)), then loads the level right after it.
+    // init() uses: world_handler.getlevel(0, 0)), then loads and fully populates the level
+    // right after it. Returns nullptr if `current_ldtk_level` isn't found, or is already the
+    // last level in the world.
     //
     // This is a single-active-level game (do_level_switch despawns everything that doesn't
     // carry over), so a switch fully replaces world_handler.placed_levels rather than
-    // accumulating levels. NOTE: clearing placed_levels destroys the *current* level's
-    // LevelData (and PlacedLevel) -- callers must copy out anything they still need from it
-    // before calling this.
-    NextLevelTarget resolve_next_level(const ldtk::Level& current_ldtk_level) {
+    // accumulating levels. spawn_level() below calls populate_level() exactly once for the
+    // new level -- that's the only place its game entities get spawned.
+    // NOTE: clearing placed_levels destroys the *current* level's LevelData (and PlacedLevel)
+    // -- callers must copy out anything they still need from it before calling this.
+    PlacedLevel* load_next_level(const ldtk::Level& current_ldtk_level) {
         const auto& world = world_handler.getworld((size_t)0);
 
         size_t current_index = 0;
@@ -434,22 +450,23 @@ struct GameClass : Application {
             }
             current_index++;
         }
-        if (!found) return {};
+        if (!found) return nullptr;
 
         const size_t next_index = current_index + 1;
-        if (next_index >= world.allLevels().size()) return {};  // current level is the last one in the world
+        if (next_index >= world.allLevels().size()) return nullptr;  // current level is the last one in the world
 
         const ldtk::Level& next_ldtk_level = world_handler.getlevel(next_index, world);
 
         world_handler.placed_levels.clear();
         leveltris->clear();
 
-        PlacedLevel& placed = spawn_level(next_ldtk_level);
-        return {&placed, dynamic_cast<LevelData*>(placed.usrdata.get())};
+        return &spawn_level(next_ldtk_level);
     }
     // </AI>
 
-    // True if `e` has "canfinish", overlaps the Finish bound, and isn't blocked by any NoFinish zone.
+    // True if game entity `e` has "canfinish", overlaps the level's Finish bound, and isn't
+    // blocked by any NoFinish bound. Finish/NoFinish are plain Hitboxes baked from ldtk
+    // entities at load time -- there's no game entity behind them to tick or despawn.
     bool entity_triggers_finish(const Entity& e, const LevelData& level_data) {
         if (!level_data.finish || !e.has_attribute("canfinish")) return false;
         if (!hitboxes_overlap(e.data, *level_data.finish)) return false;
@@ -461,17 +478,33 @@ struct GameClass : Application {
     }
 
     // <AI>
+    // Switches from `current_ldtk_level` to the next level in the world, carrying over only
+    // the game entities that overlap a ShareFinish bound (and opt in via
+    // transfers_to_new_level()) -- everything else despawns.
+    //
+    // Order matters here:
+    //   1. Every *existing* (old-level) game entity's fate is decided and applied FIRST,
+    //      while `entities` still only contains the old level's entities. Only after that do
+    //      we load the next level, which spawns ITS OWN game entities via populate_level
+    //      (called exactly once, inside load_next_level -> spawn_level). That way the new
+    //      level's freshly-spawned game entities are never visible to the "does this overlap
+    //      the old ShareFinish bound" check, so they can't get wrongly marked to despawn.
+    //   2. populate_level() only ever runs once per level load -- there's no second call
+    //      here re-parsing the same ldtk entities into an already-populated LevelData (that
+    //      second call was what threw "Only one PlayerStart entity is allowed per level!").
+    // Despawning follows the same two-step pattern the main loop() uses: drop the entity's
+    // triangles from entitytris via entitytrisindex.remove_entity() *before* the entity
+    // itself is destroyed by clean_entities(), so entitytris never ends up holding a "ghost"
+    // triangle for an entity that no longer exists.
     void do_level_switch(const ldtk::Level& current_ldtk_level, const LevelData& level_data) {
-        // Copy out what we still need -- resolve_next_level() below clears placed_levels,
-        // which owns (and destroys) level_data.
+        // Copy out what we still need -- load_next_level() below clears placed_levels, which
+        // owns (and destroys) level_data.
         const std::vector<Hitbox> share_finish_bounds = level_data.share_finish;
-
-        NextLevelTarget next = resolve_next_level(current_ldtk_level);
-        if (!next.level || !next.data || next.data->player_starts.empty()) return;
-
-        const auto player_start = next.data->player_starts[0];
         EntityList& entities = get<EntityList>();
 
+        // Step 1: decide every existing (old-level) game entity's fate and despawn the ones
+        // that don't carry over. Nothing from the next level exists yet at this point.
+        std::vector<EntityList::index_t> surviving_entity_ids;
         for (auto& [entity_id, entity_ptr] : entities) {
             if (!entity_ptr) continue;
             Entity& e = *entity_ptr;
@@ -479,23 +512,48 @@ struct GameClass : Application {
             const bool overlaps_share_finish = std::any_of(share_finish_bounds.begin(), share_finish_bounds.end(),
                 [&](const Hitbox& bound) { return hitboxes_overlap(e.data, bound); });
 
-            if (overlaps_share_finish && e.transfers_to_new_level())
-                e.data.pos = player_start;
-            else
+            if (overlaps_share_finish && e.transfers_to_new_level()) {
+                surviving_entity_ids.push_back(entity_id);
+            } else {
                 e.wants_to_despawn = true;
+                entitytrisindex.remove_entity(entity_id);  // drop its triangles before it's destroyed below
+            }
         }
+        entities.clean_entities();  // actually erases everything just marked wants_to_despawn
 
-        for (auto& [entity_id, entity_ptr] : entities)
-            if (entity_ptr && entity_ptr->wants_to_despawn) entitytrisindex.remove_entity(entity_id);
-        entities.clean_entities();
+        // Step 2: load the next level. This is the ONLY populate_level() call it gets -- it
+        // spawns all of the new level's game entities (and bakes its own PlayerStart/Finish/
+        // NoFinish/ShareFinish/Camera bounds) exactly once.
+        PlacedLevel* next_level = load_next_level(current_ldtk_level);
+        if (!next_level) return;
+        LevelData& next_data = level_data_of(*next_level);
+        if (next_data.player_starts.empty()) return;
+
+        const auto player_start = next_data.player_starts[0];
+
+        // Step 3: move the surviving old-level game entities onto the new PlayerStart. The
+        // new level's own game entities are never touched -- they're already positioned by
+        // whatever populate_level/spawn_entity did for them.
+        for (auto id : surviving_entity_ids)
+            if (entities.exists(id)) entities[id].data.pos = player_start;
+
+        // Step 4: rebuild entitytris for everything currently in `entities` -- the surviving
+        // old entities (just moved) plus the new level's freshly-spawned game entities (which
+        // have no entitytrisindex entry yet). add_entity() no-ops for ids already present, so
+        // this is safe to run unconditionally over the whole list.
+        for (auto& [entity_id, entity_ptr] : entities) {
+            entitytrisindex.add_entity(entity_id);
+            entity_ptr->render(*this, entitytris->at(entitytrisindex[entity_id]));
+        }
 
         renderer->camera.x = renderer->camera.target_x = player_start.x;
         renderer->camera.y = renderer->camera.target_y = player_start.y;
     }
+    // </AI>
 
     void check_finish() {
         auto& placed_level = world_handler.placed_levels[0];
-        auto& level_data = *dynamic_cast<LevelData*>(placed_level.usrdata.get());
+        auto& level_data = level_data_of(placed_level);
 
         EntityList& entities = get<EntityList>();
         for (auto& [entity_id, entity_ptr] : entities) {
@@ -659,7 +717,7 @@ struct GameClass : Application {
         light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
         light_shafts.register_post_effect(*renderer);
 
-        auto& level_data = *dynamic_cast<LevelData*>(world_handler.placed_levels[0].usrdata.get());
+        auto& level_data = level_data_of(world_handler.placed_levels[0]);
 
         update_renderer_layers();
 
@@ -722,7 +780,7 @@ struct GameClass : Application {
 
         // debug_screen("colours", "Game colours: " << puzzle_state->active_colours);
 
-        const auto& level_data = *dynamic_cast<LevelData*>(world_handler.placed_levels[0].usrdata.get());
+        const auto& level_data = level_data_of(world_handler.placed_levels[0]);
 
         if (entities.exists(camera_following_entity)) {
             const auto& e = entities[camera_following_entity];
