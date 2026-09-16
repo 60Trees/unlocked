@@ -1,9 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <concepts>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <typeindex>
 #include <typeinfo>
@@ -39,7 +41,19 @@ namespace Base {
 
         std::map<type_hash, UserData> _user_data;
 
+        std::vector<std::string> flags;
+
         public:
+        inline bool has_flag(std::string_view flag) const { return std::find(flags.begin(), flags.end(), flag) != flags.end(); }
+        inline void add_flag(std::string&& flag) {
+            if (!has_flag(flag)) flags.push_back(std::move(flag));
+        }
+        inline void add_flag(std::string_view flag) { add_flag(std::string(flag)); }
+        inline void remove_flag(std::string_view flag) {
+            auto it = std::find(flags.begin(), flags.end(), flag);
+            if (it != flags.end()) flags.erase(it);
+        }
+
         template <typename Owner, typename T>
         void set_user_data(std::shared_ptr<T> data) {
             _user_data[typeid(Owner).hash_code()] = UserData{typeid(T).hash_code(), std::move(data)};

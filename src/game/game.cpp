@@ -1,4 +1,4 @@
-#define what_is_going_on 3
+// #define what_is_going_on 1000
 
 #include <base/app.hpp>
 #include <base/renderer.hpp>
@@ -43,6 +43,18 @@ struct Point {
 extern "C" double dt_multiplier();
 
 using VertexArray = Renderer::VertexArray;
+// <AI>
+// Same test as Entity::colliding_with, but for two raw Hitboxes -- the Finish/NoFinish/
+// ShareFinish bounds are never spawned as real Entities, so there's no Entity to compare.
+static bool hitboxes_overlap(const Hitbox& a, const Hitbox& b) {
+    return a.left() < b.right() && a.right() > b.left() && a.bottom() < b.top() && a.top() > b.bottom();
+}
+
+static Hitbox::vec2_t bottom_mid(const Hitbox& h) { return {(h.left() + h.right()) / 2.0, h.bottom()}; }
+
+// Translates `h` (preserving size/anchor) so its bottom-mid point lands on `target`.
+static void snap_bottom_mid_to(Hitbox& h, Hitbox::vec2_t target) { h.pos += target - bottom_mid(h); }
+// </AI>
 
 struct KeyboardControls {
     SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_SPACE;
@@ -381,69 +393,159 @@ struct GameClass : Application {
     struct LevelData : PlacedLevelData {
         vector<glm::vec<2, double>> player_starts;
         vector<Renderer::CameraBound> camera_bounds;
+
+        // <AI>
+        // Finish/NoFinish/ShareFinish bounds, stored the same way camera bounds are --
+        // baked from the LDtk entity at load time, never spawned as real Entities.
+        // Hitbox is reused purely for its anchor-aware left()/right()/top()/bottom().
+        std::optional<Hitbox> finish;      // BOTTOM_MID anchored, at most one
+        std::vector<Hitbox> no_finish;     // TOP_LEFT anchored
+        std::vector<Hitbox> share_finish;  // TOP_LEFT anchored
+        // </AI>
     };
 
-    void init() override {
-        print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
+    // <AI>
+    // Resolves "the next level" for a Finish-triggered level switch. Nothing in the files
+    // you've shared defines level sequencing/streaming (no world_handler.hpp), so this is
+    // an integration stub -- wire it up to however your project decides what level comes
+    // next and loads/swaps it into world_handler.
+    struct NextLevelTarget {
+        PlacedLevel* level = nullptr;
+        LevelData* data = nullptr;
+    };
+    // <AI>
+    // Finds `current_ldtk_level`'s index within world 0's level list (world 0 matches what
+    // init() uses: world_handler.getlevel(0, 0)), then loads the level right after it.
+    //
+    // This is a single-active-level game (do_level_switch despawns everything that doesn't
+    // carry over), so a switch fully replaces world_handler.placed_levels rather than
+    // accumulating levels. NOTE: clearing placed_levels destroys the *current* level's
+    // LevelData (and PlacedLevel) -- callers must copy out anything they still need from it
+    // before calling this.
+    NextLevelTarget resolve_next_level(const ldtk::Level& current_ldtk_level) {
+        const auto& world = world_handler.getworld((size_t)0);
 
-        renderer->renderqueue = [&] -> Renderer::RenderQueue& { return renderqueue; };
-        renderer->init();
-        fps_counter->init();
+        size_t current_index = 0;
+        bool found = false;
+        for (const auto& l : world.allLevels()) {
+            if (&l == &current_ldtk_level) {
+                found = true;
+                break;
+            }
+            current_index++;
+        }
+        if (!found) return {};
 
-        fps_counter->deltaTime = 1.0 / 60.0;
+        const size_t next_index = current_index + 1;
+        if (next_index >= world.allLevels().size()) return {};  // current level is the last one in the world
 
-        ensure_class_added<EntityList>([] { return new EntityList(); });
+        const ldtk::Level& next_ldtk_level = world_handler.getlevel(next_index, world);
 
+        world_handler.placed_levels.clear();
+        leveltris->clear();
+
+        PlacedLevel& placed = spawn_level(next_ldtk_level);
+        return {&placed, dynamic_cast<LevelData*>(placed.usrdata.get())};
+    }
+    // </AI>
+
+    // True if `e` has "canfinish", overlaps the Finish bound, and isn't blocked by any NoFinish zone.
+    bool entity_triggers_finish(const Entity& e, const LevelData& level_data) {
+        if (!level_data.finish || !e.has_attribute("canfinish")) return false;
+        if (!hitboxes_overlap(e.data, *level_data.finish)) return false;
+
+        for (const auto& no_finish_bound : level_data.no_finish)
+            if (hitboxes_overlap(e.data, no_finish_bound)) return false;
+
+        return true;
+    }
+
+    // <AI>
+    void do_level_switch(const ldtk::Level& current_ldtk_level, const LevelData& level_data) {
+        // Copy out what we still need -- resolve_next_level() below clears placed_levels,
+        // which owns (and destroys) level_data.
+        const std::vector<Hitbox> share_finish_bounds = level_data.share_finish;
+
+        NextLevelTarget next = resolve_next_level(current_ldtk_level);
+        if (!next.level || !next.data || next.data->player_starts.empty()) return;
+
+        const auto player_start = next.data->player_starts[0];
         EntityList& entities = get<EntityList>();
 
-        for (auto& baseclass : classes) baseclass->init();
+        for (auto& [entity_id, entity_ptr] : entities) {
+            if (!entity_ptr) continue;
+            Entity& e = *entity_ptr;
 
-        {
-            const span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
-            world_handler.loadFromMemory(file);
-            print("Loaded world\n");
+            const bool overlaps_share_finish = std::any_of(share_finish_bounds.begin(), share_finish_bounds.end(),
+                [&](const Hitbox& bound) { return hitboxes_overlap(e.data, bound); });
+
+            if (overlaps_share_finish && e.transfers_to_new_level())
+                e.data.pos = player_start;
+            else
+                e.wants_to_despawn = true;
         }
 
-        {
-            const auto c = world_handler.main_world.allWorlds()[0].getBgColor();
-            debug_screen("bgcolour", "Background colour: " << +c.r << "," << +c.g << "," << +c.b);
-            // set_solid_background(c.r, c.g, c.b);
-            set_solid_background(0, 0, 0);
+        for (auto& [entity_id, entity_ptr] : entities)
+            if (entity_ptr && entity_ptr->wants_to_despawn) entitytrisindex.remove_entity(entity_id);
+        entities.clean_entities();
+
+        renderer->camera.x = renderer->camera.target_x = player_start.x;
+        renderer->camera.y = renderer->camera.target_y = player_start.y;
+    }
+
+    void check_finish() {
+        auto& placed_level = world_handler.placed_levels[0];
+        auto& level_data = *dynamic_cast<LevelData*>(placed_level.usrdata.get());
+
+        EntityList& entities = get<EntityList>();
+        for (auto& [entity_id, entity_ptr] : entities) {
+            if (!entity_ptr) continue;
+            if (!entity_triggers_finish(*entity_ptr, level_data)) continue;
+
+            debug_screen("aaa", "Level is finishing!!!");
+            do_level_switch(placed_level.level, level_data);
+            break;  // placed_level / level_data are potentially dangling after this -- don't touch them again
         }
+    }
+    const map<uint, string> kDefaultTileGroups = {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}};
 
-        world_handler.uploadAllTilesets(*renderer);
+    // Parses PlayerStart/Finish/NoFinish/ShareFinish/Camera-bound markers and spawns every
+    // other named entity for `placed_level`, populating `level_data` and the entity list in
+    // place. Shared between init() (first level) and spawn_level() (levels loaded on a switch).
+    void populate_level(const Game::PlacedLevel& placed_level, LevelData& level_data) {
+        EntityList& entities = get<EntityList>();
 
-        world_handler.placed_levels.push_back(PlacedLevel{world_handler.getlevel(0, 0), {0, 0}, make_shared<LevelData>(),
-            {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}}});
-        world_handler.renderDirtyLevels(*leveltris);
-        light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
-        light_shafts.register_post_effect(*renderer);
-
-        auto& level_data = *dynamic_cast<LevelData*>(world_handler.placed_levels[0].usrdata.get());
-
-        update_renderer_layers();
-
-        renderer->compile_default_shaders();
-
-        renderer->addTextureFromBytes("assets/player.png", fs_helper::get_bytes_from_file<char>("assets/player.png"));
-
-        // renderer->compile_used_shaders();
-
-        const auto handle_entity = [&](const Game::PlacedLevel& level, const ldtk::Entity& entity, const std::string& name) {
+        const auto handle_entity = [&](const ldtk::Entity& entity, const std::string& name) {
             if (name == "PlayerStart") {
+                if (!level_data.player_starts.empty()) throw runtime_error("Only one PlayerStart entity is allowed per level!");
+
                 const auto pos = entity.getPosition();
-
-#ifdef what_is_going_on
-                for (int i = 0; i < what_is_going_on; i++)
-                    [&](Entity& e) {
-                        e.data.pos = {pos.x, -pos.y};
-                        e.controller = make_unique<RandomController>();
-                    }(entities[entities.spawn_entity("player")]);
-#endif
-
                 level_data.player_starts.push_back({pos.x, -pos.y});
                 return;
             }
+
+            if (name == "Finish" || name == "NoFinish" || name == "ShareFinish") {
+                if (name == "Finish" && level_data.finish) throw runtime_error("Only one Finish entity is allowed per level!");
+
+                auto size = entity.getSize();
+                auto pos = entity.getPosition();
+                pos.y *= -1;
+
+                Hitbox bound;
+                bound.size = {size.x, size.y};
+                bound.pos = {pos.x + placed_level.offset.x, pos.y + placed_level.offset.y};
+                bound.anchor_point = (name == "Finish") ? Hitbox::BOTTOM_MID : Hitbox::TOP_LEFT;
+
+                if (name == "Finish")
+                    level_data.finish = bound;
+                else if (name == "NoFinish")
+                    level_data.no_finish.push_back(bound);
+                else
+                    level_data.share_finish.push_back(bound);
+
+                return;
+            }
+
             if (name.contains("Camera")) {
                 auto size = entity.getSize();
                 auto pos = entity.getPosition();
@@ -491,28 +593,84 @@ struct GameClass : Application {
                                         ". (Hint: Don't include \"camera\" in the entity name if it's not a camera bound)");
 
                 auto& bound = level_data.camera_bounds.back();
-                bound.x = pos.x + level.offset.x;
-                bound.y = pos.y + level.offset.y;
+                bound.x = pos.x + placed_level.offset.x;
+                bound.y = pos.y + placed_level.offset.y;
                 bound.w = size.x;
                 bound.h = size.y;
 
                 return;
             }
 
-#ifdef what_is_going_on
-// if (name == "Essence")
-//     for (int i = 0; i < 5; i++) entities.spawn_entity(name, &entity);
-#endif
             entities.spawn_entity(name, &entity);
         };
 
-        players.push_back(entities.spawn_entity("player"));
-        for (const auto& layer : world_handler.placed_levels[0].level.allLayers()) {
-            for (const auto& entity : layer.allEntities()) {
-                const auto name = entity.getName();
-                handle_entity(world_handler.placed_levels[0], entity, name);
-            }
+        for (const auto& layer : placed_level.level.allLayers())
+            for (const auto& entity : layer.allEntities()) handle_entity(entity, entity.getName());
+    }
+
+    // Creates and renders a PlacedLevel for `level` at `offset`, parses its entities into a
+    // fresh LevelData, and appends it to world_handler.placed_levels.
+    PlacedLevel& spawn_level(const ldtk::Level& level, glm::vec<2, int> offset = {0, 0}) {
+        auto level_data_ptr = make_shared<LevelData>();
+        world_handler.placed_levels.push_back(PlacedLevel{level, offset, level_data_ptr, kDefaultTileGroups});
+        PlacedLevel& placed = world_handler.placed_levels.back();
+
+        world_handler.render(level, *leveltris, *renderer, offset);
+        light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&level]);
+
+        populate_level(placed, *level_data_ptr);
+
+        return placed;
+    }
+    // </AI>
+    void init() override {
+        print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
+
+        renderer->renderqueue = [&] -> Renderer::RenderQueue& { return renderqueue; };
+        renderer->init();
+        fps_counter->init();
+
+        fps_counter->deltaTime = 1.0 / 60.0;
+
+        ensure_class_added<EntityList>([] { return new EntityList(); });
+
+        EntityList& entities = get<EntityList>();
+
+        for (auto& baseclass : classes) baseclass->init();
+
+        {
+            const span<const unsigned char> file = fs_helper::get_bytes_from_file<unsigned char>("assets/main.ldtk");
+            world_handler.loadFromMemory(file);
+            print("Loaded world\n");
         }
+
+        {
+            const auto c = world_handler.main_world.allWorlds()[0].getBgColor();
+            debug_screen("bgcolour", "Background colour: " << +c.r << "," << +c.g << "," << +c.b);
+            // set_solid_background(c.r, c.g, c.b);
+            set_solid_background(0, 0, 0);
+        }
+
+        world_handler.uploadAllTilesets(*renderer);
+
+        world_handler.placed_levels.push_back(PlacedLevel{world_handler.getlevel(0, 0), {0, 0}, make_shared<LevelData>(),
+            {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}}});
+        world_handler.renderDirtyLevels(*leveltris);
+        light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
+        light_shafts.register_post_effect(*renderer);
+
+        auto& level_data = *dynamic_cast<LevelData*>(world_handler.placed_levels[0].usrdata.get());
+
+        update_renderer_layers();
+
+        renderer->compile_default_shaders();
+
+        renderer->addTextureFromBytes("assets/player.png", fs_helper::get_bytes_from_file<char>("assets/player.png"));
+
+        // renderer->compile_used_shaders();
+
+        players.push_back(entities.spawn_entity("player"));
+        populate_level(world_handler.placed_levels[0], level_data);
         if (level_data.player_starts.empty()) {
             level_data.player_starts.push_back({0, 100});
         }
@@ -707,6 +865,8 @@ struct GameClass : Application {
             entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
         }
         if (should_clean_entities) entities.clean_entities();
+
+        check_finish();
 
         check_running(renderer.get());
         check_running(fps_counter.get());

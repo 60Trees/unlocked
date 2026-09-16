@@ -69,7 +69,7 @@ namespace Game {
         inline const ldtk::World& getworld(size_t worldindex) const {
             for (const auto& w : main_world.allWorlds()) {
                 if (worldindex == 0) return w;
-                worldindex++;
+                worldindex--;
             }
             throw std::runtime_error("Index out of range");
         }
@@ -77,7 +77,7 @@ namespace Game {
         inline const ldtk::Level& getlevel(size_t levelindex, const ldtk::World& world) const {
             for (const auto& l : world.allLevels()) {
                 if (levelindex == 0) return l;
-                levelindex++;
+                levelindex--;
             }
             throw std::runtime_error("Index out of range");
         }

@@ -12,7 +12,7 @@ namespace Game {
         Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
         void spawn(Base::Application&, const ldtk::Entity* e = nullptr) override;
-        std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",pick_up_triangles,triggers,"; }
+        std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",pick_up_triangles,triggers,canfinish,"; }
     };
 }  // namespace Game
 

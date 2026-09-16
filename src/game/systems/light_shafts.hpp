@@ -210,7 +210,7 @@ fn sun_visibility(world_pos: vec2f, march_dir: vec2f, atlas_origin: vec2f, atlas
 
         float t = (float)SDL_GetTicks() / 1000.0f;
         for (size_t i = 0; i < passes.size() && i < 13; ++i) {
-            float speed = 0.01f * passes[i].speed_multiplier;
+            float speed = 0.005f * passes[i].speed_multiplier;
             float animated_phase = t * speed;
             params.pass_data[i] = {passes[i].noise_scale, passes[i].noise_threshold, animated_phase, passes[i].weight};
             params.pass_fade[i] = {passes[i].fade_start, passes[i].fade_length, 0.0f, 0.0f};

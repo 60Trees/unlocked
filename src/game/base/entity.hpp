@@ -61,15 +61,68 @@ namespace Game {
             ControlData up, down, left, right;
         } colliding_with;
 
-        _nodisc_i double left() const { return pos.x - size.x / 2; }
-        _nodisc_i double right() const { return pos.x + size.x / 2; }
-        _nodisc_i double top() const { return pos.y + size.y; }
-        _nodisc_i double bottom() const { return pos.y; }
+        /// 1 = top/left, 2 = middle, 3 = bottom/right
+        enum AnchorPoint : uint8_t {
+            TOP_LEFT = 0x11,
+            TOP_MID = 0x21,
+            TOP_RIGHT = 0x31,
+            LEFT = 0x12,
+            MID = 0x22,
+            RIGHT = 0x32,
+            BOTTOM_LEFT = 0x13,
+            BOTTOM_MID = 0x23,
+            BOTTOM_RIGHT = 0x33,
+        } anchor_point = BOTTOM_MID;
+
+        _nodisc_i double left() const {
+            switch (anchor_point & 0xF0) {
+                default:
+                    return pos.x;
+                case 0x20:
+                    return pos.x - size.x / 2;
+                case 0x30:
+                    return pos.x - size.x;
+            }
+        }
+
+        _nodisc_i double right() const {
+            switch (anchor_point & 0xF0) {
+                case 0x10:
+                    return pos.x + size.x;
+                case 0x20:
+                    return pos.x + size.x / 2;
+                default:
+                    return pos.x;
+            }
+        }
+
+        _nodisc_i double top() const {
+            switch (anchor_point & 0x0F) {
+                default:
+                    return pos.y;
+                case 0x02:
+                    return pos.y + size.y / 2;
+                case 0x03:
+                    return pos.y + size.y;
+            }
+        }
+
+        _nodisc_i double bottom() const {
+            switch (anchor_point & 0x0F) {
+                case 0x01:
+                    return pos.y - size.y;
+                case 0x02:
+                    return pos.y - size.y / 2;
+                default:
+                    return pos.y;
+            }
+        }
+
         _nodisc_i vec2_t top_left() const { return {left(), top()}; }
         _nodisc_i vec2_t top_right() const { return {right(), top()}; }
         _nodisc_i vec2_t bottom_left() const { return {left(), bottom()}; }
         _nodisc_i vec2_t bottom_right() const { return {right(), bottom()}; }
-        _nodisc_i vec2_t hitbox_center() const { return {pos.x, pos.y + size.y / 2}; }
+        _nodisc_i vec2_t hitbox_center() const { return {(left() + right()) / 2, (top() + bottom()) / 2}; }
     };
 
     struct EntityController {
@@ -176,7 +229,13 @@ namespace Game {
 
         virtual bool colliding_with(const Entity* other) const;
 
+        /// This function is only run in the base Entity::spawn();
+        /// If you plan on having custom hitbox logic, then just return {} and
+        /// set the hitbox afterward
         virtual Hitbox get_defaults() const = 0;
+
+        // For example: Gates / switches / unmoving entities should return false
+        virtual bool transfers_to_new_level() const { return true; }
 
         virtual void render(Base::Application& app, Base::Renderer::VertexLayer& layer);
         virtual std::string name() const = 0;

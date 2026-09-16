@@ -20,7 +20,7 @@ struct Door : PuzzleObject {
     optional<bool> get_state() const override { return nullopt; }
     std::string name() const override { return "Door"; }
 
-    Hitbox get_defaults() const override { return {}; };
+    Hitbox get_defaults() const override { return {.anchor_point = Game::Hitbox::TOP_LEFT}; };
 
     bool inverted = false;
 

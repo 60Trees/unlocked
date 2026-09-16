@@ -43,6 +43,7 @@ namespace Game {
         std::string name() const override { return "PuzzleObject"; }
 
         bool visible = true;
+        bool transfers_to_new_level() const override { return false; }
 
         bool does_render() const override { return visible; }
 
