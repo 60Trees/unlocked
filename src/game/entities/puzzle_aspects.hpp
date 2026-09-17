@@ -1,3 +1,8 @@
+/**
+ * @file src/game/entities/puzzle_aspects.hpp
+ * @author 60Trees_ (github.com/60Trees)
+ */
+
 #pragma once
 
 #include <cstdint>
@@ -12,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <utils.hpp>
+#include <glm/vec4.hpp>
 
 namespace Game {
     union RGBA {
@@ -84,6 +90,43 @@ namespace Game {
         Direction get_direction() const override { return RIGHT; }
 
         RGBA colour;
+
+        // Straight 0..1 tint, refreshed from `colour` right before each draw. This has to be a
+        // *member*, not a render()-local -- Material::params is a non-owning span the renderer
+        // reads later in the frame, same reasoning as ditherBgParams in game.cpp.
+        glm::vec4 tint_param{};
+        void refresh_tint_param() {
+            tint_param = {colour.split.r / 255.0f, colour.split.g / 255.0f, colour.split.b / 255.0f, colour.split.a / 255.0f};
+        }
+
+        // Drop-in replacement for builtin_textured_pshader(): identical sampling, but any
+        // near-pure-red marker pixel in buttons_n_shi.png is swapped for tint_param, scaled by
+        // the marker's own red channel so any shading baked into the marker survives as a
+        // brightness variation on the tint instead of being flattened.
+        static constexpr std::string_view kColourKeyedTexturedPS = R"(
+            // USES_TEXTURES
+            @group(1) @binding(0) var atlasTex: texture_2d<f32>;
+            @group(1) @binding(1) var atlasSamp: sampler;
+            @group(2) @binding(0) var<uniform> params: array<vec4f, 16>;
+            @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
+                let texel = textureSample(atlasTex, atlasSamp, in.uv / vec2f(textureDimensions(atlasTex)));
+                let tint = params[0];
+                let is_marker = texel.r > 0.5 && texel.g < 0.15 && texel.b < 0.15;
+                let outRGB = select(texel.rgb, tint.rgb * texel.r, is_marker);
+                return vec4f(outRGB, texel.a);
+            }
+        )";
+
+        virtual Base::Renderer::Material get_material(Base::Application& app) override {
+            auto& r = app.get<Base::Renderer>();
+            Base::Renderer::Material retval;
+            retval.pixel_shader = kColourKeyedTexturedPS;
+            retval.vertex_shader = r.builtin_worldspace_vshader();
+            retval.blend_mode = Base::Renderer::Alpha;
+            refresh_tint_param();
+            retval.params = std::as_bytes(std::span(&tint_param, 1));
+            return retval;
+        }
     };
 
 }  // namespace Game

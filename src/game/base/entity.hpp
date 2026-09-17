@@ -222,6 +222,19 @@ namespace Game {
         virtual void tick_position(Base::Application& app);
         virtual void despawn() {}
 
+        virtual Base::Renderer::Material get_material(Base::Application& app) {
+            auto& r = app.get<Base::Renderer>();
+            const auto worldspace = r.builtin_worldspace_vshader();
+            const auto uispace = r.builtin_uispace_vshader();
+            const auto textured = r.builtin_textured_pshader();
+            const auto coloured = r.builtin_coloured_pshader();
+            Base::Renderer::Material retval;
+            retval.pixel_shader = textured;
+            retval.vertex_shader = worldspace;
+            retval.blend_mode = Base::Renderer::Alpha;
+            return retval;
+        }
+
         /// Ran directly before it will be disowned, so `parent` is still valid
         virtual void when_disowned() {}
 

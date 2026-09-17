@@ -1,3 +1,8 @@
+/**
+ * @file src/game/systems/light_shafts.hpp
+ * @author 60Trees_ (github.com/60Trees)
+ */
+
 #pragma once
 #include <base/renderer.hpp>
 #include <game/base/world_handler.hpp>

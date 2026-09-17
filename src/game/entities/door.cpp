@@ -1,7 +1,6 @@
 /**
- * @date 03/09/2026
- * @author 60Trees_ (github.com/60Trees)
  * @file src/game/entities/door.cpp
+ * @author 60Trees_ (github.com/60Trees)
  */
 
 #include "LDtkLoader/DataTypes.hpp"
@@ -81,13 +80,7 @@ struct Door : PuzzleObject {
             return;
         }
 
-        const auto worldspace = r.builtin_worldspace_vshader();
-        const auto uispace = r.builtin_uispace_vshader();
-        const auto textured = r.builtin_textured_pshader();
-        const auto coloured = r.builtin_coloured_pshader();
-        layer.material.pixel_shader = textured;
-        layer.material.vertex_shader = worldspace;
-        layer.material.blend_mode = Renderer::Alpha;
+        layer.material = get_material(app);
 
         layer.vertices.clear();
 

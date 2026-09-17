@@ -1,7 +1,6 @@
 /**
- * @date 28/08/2026
- * @author 60Trees_ (github.com/60Trees)
  * @file src/game/entities/lever.cpp
+ * @author 60Trees_ (github.com/60Trees)
  */
 
 #include <game/base/entity.hpp>

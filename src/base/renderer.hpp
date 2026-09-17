@@ -1,3 +1,8 @@
+/**
+ * @file src/base/renderer.hpp
+ * @author 60Trees_ (github.com/60Trees)
+ */
+
 #pragma once
 
 #include <sys/types.h>
@@ -58,7 +63,7 @@ namespace Base {
             float zoom_level = -1;
 
             // ignored by renderer
-            int8_t priority = 0;
+            float priority = 0;
             inline auto operator<=>(const CameraBound& oth) { return priority <=> oth.priority; }
         };
 

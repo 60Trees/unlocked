@@ -1,3 +1,8 @@
+/*
+ * @file src/game/game.cpp
+ * @author 60Trees_ (github.com/60Trees)
+ */
+
 // #define what_is_going_on 1000
 
 #include <base/app.hpp>
@@ -81,7 +86,7 @@ struct RandomController : EntityController {
         {
             int8_t moving_dir_int = Action == MOVE_LEFT ? -1 : (Action == MOVE_RIGHT ? 1 : 0);
             const auto forced_dir = own.movement->forced_direction;
-            if (forced_dir) {
+            systems / light_shafts(forced_dir) {
                 if (forced_dir == LEFT) moving_dir_int = -1;
                 if (forced_dir == RIGHT) moving_dir_int = 1;
             }
@@ -615,7 +620,7 @@ struct GameClass : Application {
                         .snappy = false,
                         .center_at = {},
                         .zoom_level = -1,
-                        .priority = -1,
+                        .priority = entity.getField<ldtk::FieldType::Float>("Priority").value(),
                     });
                 } else if (name == "CameraLooseBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
@@ -624,7 +629,7 @@ struct GameClass : Application {
                         .snappy = entity.getField<bool>("Snappy").value(),
                         .center_at = {},
                         .zoom_level = entity.getField<float>("ZoomLevel").value_or(-1),
-                        .priority = 1,
+                        .priority = entity.getField<ldtk::FieldType::Float>("Priority").value(),
                     });
                 } else if (name == "CameraZoomOutBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
@@ -633,7 +638,7 @@ struct GameClass : Application {
                         .snappy = entity.getField<bool>("Snappy").value_or(false),
                         .center_at = {},
                         .zoom_level = -1,
-                        .priority = 1,
+                        .priority = entity.getField<ldtk::FieldType::Float>("Priority").value(),
                     });
                 } else if (name == "CameraLockedBound") {
                     level_data.camera_bounds.push_back(Renderer::CameraBound{
@@ -642,7 +647,7 @@ struct GameClass : Application {
                         .snappy = entity.getField<bool>("Snappy").value(),
                         .center_at = {},
                         .zoom_level = -1,
-                        .priority = 1,
+                        .priority = entity.getField<ldtk::FieldType::Float>("Priority").value(),
                     });
                 } else if (name == "CameraCenterHere") {
                     return;
@@ -789,20 +794,35 @@ struct GameClass : Application {
 
             // debug_screen("xb", "Player pos: " << e.data.pos.x << ',' << e.data.pos.y);
 
-            size_t smalleset = std::numeric_limits<size_t>::max();
+            bool should_replace = !renderer->camera_bound;
+            if (renderer->camera_bound) {
+                const auto& bound = *renderer->camera_bound;
+                const bool overlap_x = e.data.pos.x >= bound.x && e.data.pos.x <= bound.x + bound.w;
+                const bool overlap_y = e.data.pos.y <= bound.y && e.data.pos.y >= bound.y - bound.h;
+                if (!(overlap_x && overlap_y)) should_replace = true;
+            }
 
             for (const auto& bound : level_data.camera_bounds) {
                 // debug_screen("xa", "Bound pos: " << bound.x << "," << bound.y << "\n      size: " << bound.w << ',' << bound.h);
                 const bool overlap_x = e.data.pos.x >= bound.x && e.data.pos.x <= bound.x + bound.w;
                 const bool overlap_y = e.data.pos.y <= bound.y && e.data.pos.y >= bound.y - bound.h;
-                const size_t size = bound.w + bound.h;
-
                 if (!(overlap_x && overlap_y)) continue;
 
-                if (size > smalleset) continue;
+                if (should_replace || !renderer->camera_bound) {
+                    renderer->camera_bound = &bound;
+                    continue;
+                }
+                if (renderer->camera_bound->priority > bound.priority) continue;
+                if (renderer->camera_bound->priority < bound.priority) {
+                    renderer->camera_bound = &bound;
+                    continue;
+                }
+
+                const size_t size = bound.w + bound.h;
+
+                if (size > renderer->camera_bound->w + renderer->camera_bound->h) continue;
 
                 renderer->camera_bound = &bound;
-                smalleset = size;
             }
         }
 

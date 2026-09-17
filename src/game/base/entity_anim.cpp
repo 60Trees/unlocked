@@ -20,13 +20,7 @@ void Game::Entity::render(Base::Application& app, Base::Renderer::VertexLayer& l
     constexpr bool solitaire_mode = false;
 #endif
 
-    const auto worldspace = r.builtin_worldspace_vshader();
-    const auto uispace = r.builtin_uispace_vshader();
-    const auto textured = r.builtin_textured_pshader();
-    const auto coloured = r.builtin_coloured_pshader();
-    layer.material.pixel_shader = textured;
-    layer.material.vertex_shader = worldspace;
-    layer.material.blend_mode = Renderer::Alpha;
+    layer.material = get_material(app);
 
     if (!solitaire_mode) layer.vertices.clear();
 

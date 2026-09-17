@@ -1,3 +1,7 @@
+/*
+ * @file src/game/entities/essence.cpp
+ * @author 60Trees_ (github.com/60Trees)
+ */
 #include <cmath>
 #include <game/base/entity.hpp>
 #include <iostream>
