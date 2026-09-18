@@ -3,7 +3,7 @@
  * @author 60Trees_ (github.com/60Trees)
  */
 
-#define what_is_going_on 1000
+//#define what_is_going_on 1000
 
 #include <base/app.hpp>
 #include <base/renderer.hpp>
@@ -28,10 +28,13 @@
 #include "SDL3/SDL_mouse.h"
 #include "SDL3/SDL_stdinc.h"
 #include "game/base/world_handler.hpp"
-#include "game/systems/light_shafts.hpp"
 #include "glm/ext/vector_float2.hpp"
 #include "glm/trigonometric.hpp"
 #include "utils.hpp"
+
+#include "game/systems/light_shafts.hpp"
+#include "game/systems/bloom.hpp"
+#include "game/systems/edge_glow.hpp"
 
 #ifdef DEBUG_SCREEN
 #    include <imgui_impl_sdl3.h>
@@ -153,6 +156,8 @@ struct KeyboardEntityController : EntityController {
 
 struct GameClass : Application {
     LightShaftSystem light_shafts;
+    EdgeGlowSystem edge_glow;
+    BloomSystem bloom;
 
     Game::EntityList& entities = [&] -> Game::EntityList& {
         this->ensure_class_added<Game::EntityList>([] { return new Game::EntityList(); });
@@ -463,6 +468,7 @@ struct GameClass : Application {
         const ldtk::Level& next_ldtk_level = world_handler.getlevel(next_index, world);
 
         world_handler.placed_levels.clear();
+        renderer->camera_bound = nullptr;
         leveltris->clear();
 
         return &spawn_level(next_ldtk_level);
@@ -679,7 +685,9 @@ struct GameClass : Application {
         PlacedLevel& placed = world_handler.placed_levels.back();
 
         world_handler.render(level, *leveltris, *renderer, offset);
-        light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&level]);
+        auto& tm = world_handler.all_level_tilemaps[&level];
+        light_shafts.bake_level(*renderer, tm);
+        edge_glow.bake_level(*renderer, tm);
 
         populate_level(placed, *level_data_ptr);
 
@@ -721,6 +729,8 @@ struct GameClass : Application {
         world_handler.renderDirtyLevels(*leveltris);
         light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
         light_shafts.register_post_effect(*renderer);
+        edge_glow.register_post_effect(*renderer);
+        bloom.register_post_effect(*renderer);
 
         auto& level_data = level_data_of(world_handler.placed_levels[0]);
 

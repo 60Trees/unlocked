@@ -1042,11 +1042,16 @@ void GameRenderer::loop() {
     matParamOffset.assign(renderqueue().size(), 0);
     postParamOffset.assign(post_queue.size(), 0);
     {
+        struct ParamWrite {
+            const std::byte* src;
+            size_t off;
+            size_t bytes;
+        };
         size_t cursor = 0;
-        std::vector<std::pair<const std::byte*, size_t>> writes;  // (src, offset) pairs to upload
+        std::vector<ParamWrite> writes;
         auto reserve = [&](std::span<const std::byte> params) -> uint32_t {
             uint32_t off = (uint32_t)cursor;
-            if (!params.empty()) writes.push_back({params.data(), off});
+            if (!params.empty()) writes.push_back({params.data(), off, std::min<size_t>(params.size(), kParamMax)});
             cursor += kParamAlign;
             return off;
         };
@@ -1059,7 +1064,8 @@ void GameRenderer::loop() {
 
         for (size_t i = 0; i < post_queue.size(); ++i) postParamOffset[i] = reserve(post_queue[i].params);
         ensureParamsScratch(std::max<size_t>(cursor, kParamAlign));
-        for (auto& [src, off] : writes) wgpuQueueWriteBuffer(queue, paramsScratch, off, src, kParamMax);
+        // keep param structs a multiple of 16 bytes; wgpuQueueWriteBuffer needs a multiple of 4
+        for (auto& w : writes) wgpuQueueWriteBuffer(queue, paramsScratch, w.off, w.src, (w.bytes + 3) & ~size_t(3));
     }
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, nullptr);
