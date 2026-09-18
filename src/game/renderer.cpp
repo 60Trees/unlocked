@@ -188,7 +188,12 @@ class GameRenderer : public Base::Renderer {
     struct PostPipeline {
         WGPURenderPipeline pipeline = nullptr;
         WGPUBindGroup bg[2] = {nullptr, nullptr};
+        ushort boundExtra[PostEffect::kMaxPostExtraTextures] = {};
     };
+    ushort postExtraId(const PostEffect& fx, int i) const {
+        return i < (int)fx.extra_textures.size() ? fx.extra_textures[i] : nullTextureId;
+    }
+    void rebuildPostBindGroups(PostPipeline& pp, const PostEffect& fx);
 
     SDL_Window* window = nullptr;
 
@@ -312,8 +317,8 @@ void GameRenderer::applyCameraBound(double dt) {
 
     if (camera.target_x < cambound.left) camera.target_x = cambound.left;
     if (camera.target_x > cambound.right) camera.target_x = cambound.right;
-    if (camera.target_y < cambound.top) camera.target_y = cambound.top;
-    if (camera.target_y > cambound.bottom) camera.target_y = cambound.bottom;
+    if (camera.target_y > cambound.top) camera.target_y = cambound.top;
+    if (camera.target_y < cambound.bottom) camera.target_y = cambound.bottom;
 
     debug_screen("zze", "Camera pos (now): " << camera.x << "," << camera.y);
 }
@@ -743,6 +748,16 @@ WGPURenderPipeline GameRenderer::buildPipeline(const Material& mat) {
     return pipeline;
 }
 
+void GameRenderer::rebuildPostBindGroups(PostPipeline& pp, const PostEffect& fx) {
+    WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(pp.pipeline, 0);
+    for (int i = 0; i < 2; ++i) {
+        if (pp.bg[i]) wgpuBindGroupRelease(pp.bg[i]);
+        pp.bg[i] = buildPostEffectBindGroup(bgl, fx, i);
+    }
+    wgpuBindGroupLayoutRelease(bgl);  // GetBindGroupLayout hands back a new reference (the old code leaked it)
+    for (int i = 0; i < PostEffect::kMaxPostExtraTextures; ++i) pp.boundExtra[i] = postExtraId(fx, i);
+}
+
 GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx) {
     PostPipeline pp;
     constexpr int kMaxExtra = PostEffect::kMaxPostExtraTextures;
@@ -775,6 +790,7 @@ GameRenderer::PostPipeline GameRenderer::buildPostPipeline(const PostEffect& fx)
 
     pp.bg[0] = buildPostEffectBindGroup(bgl, fx, 0);
     pp.bg[1] = buildPostEffectBindGroup(bgl, fx, 1);
+    for (int i = 0; i < PostEffect::kMaxPostExtraTextures; ++i) pp.boundExtra[i] = postExtraId(fx, i);
 
     WGPUColorTargetState target{.format = surfaceFormat, .writeMask = WGPUColorWriteMask_All};
     WGPUFragmentState frag{.module = fs, .entryPoint = "fs_main"_wgpu, .targetCount = 1, .targets = &target};
@@ -823,9 +839,11 @@ void GameRenderer::compile_used_shaders() {
             continue;
         }
 
-        if (it->second.bg[0]) continue;  // still valid
-        WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(it->second.pipeline, 0);
-        for (int i = 0; i < 2; ++i) it->second.bg[i] = buildPostEffectBindGroup(bgl, fx, i);
+        PostPipeline& pp = it->second;
+        bool stale = !pp.bg[0] || !pp.bg[1];  // dropped by resizeSceneTargets()
+        for (int i = 0; i < PostEffect::kMaxPostExtraTextures && !stale; ++i)
+            if (postExtraId(fx, i) != pp.boundExtra[i]) stale = true;  // an effect's texture was re-created
+        if (stale) rebuildPostBindGroups(pp, fx);
     }
 }
 
@@ -894,20 +912,9 @@ void GameRenderer::ensureParamsScratch(size_t bytesNeeded) {
     WGPUBindGroupDescriptor d{.label = "Params Scratch BG"_wgpu, .layout = paramsBGL, .entryCount = 1, .entries = &e};
     paramsScratchBG = wgpuDeviceCreateBindGroup(device, &d);
 
-    // Post-effect bind groups bind the paramsScratch WGPUBuffer handle directly (see
-    // buildPostEffectBindGroup), captured at the time they were built. Now that the buffer has
-    // been reallocated, those bind groups are dangling — rebuild them immediately rather than
-    // waiting for the next compile_used_shaders() call, since this frame's post chain still runs
-    // against them further down in loop().
     for (const PostEffect& fx : post_queue) {
-        PostKey key{fx.pixel_shader.data()};
-        auto it = postPipelines.find(key);
-        if (it == postPipelines.end()) continue;
-        WGPUBindGroupLayout bgl = wgpuRenderPipelineGetBindGroupLayout(it->second.pipeline, 0);
-        for (int i = 0; i < 2; ++i) {
-            if (it->second.bg[i]) wgpuBindGroupRelease(it->second.bg[i]);
-            it->second.bg[i] = buildPostEffectBindGroup(bgl, fx, i);
-        }
+        auto it = postPipelines.find(PostKey{fx.pixel_shader.data()});
+        if (it != postPipelines.end()) rebuildPostBindGroups(it->second, fx);
     }
 }
 
@@ -940,7 +947,7 @@ void GameRenderer::loop() {
 
     camera._target_zoom = camera.zoom;
 
-    const auto cam_slowmo = 3.0;
+    const auto cam_slowmo = 1.0;
 
     applyCameraBound(dt / cam_slowmo);
     camera.update_zoom(dt / cam_slowmo);
@@ -988,6 +995,9 @@ void GameRenderer::loop() {
 
     camera.x += screen_offset_x;
     camera.y += screen_offset_y;
+
+    for (const PostEffect& fx : post_queue)
+        if (fx.pre_render) fx.pre_render(*this);
 
     // camera.screenshake
 

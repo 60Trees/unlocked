@@ -150,6 +150,7 @@ namespace Base {
             static constexpr int kMaxPostExtraTextures = 4;
             std::span<const ushort> extra_textures = {};
             bool enabled = true;
+            std::function<void(const Renderer&)> pre_render = nullptr;
         };
         std::vector<PostEffect> post_queue{};
 
@@ -174,8 +175,8 @@ namespace Base {
             }
 
             inline void update_camera(double dt) {
-                x += (target_x - x) * dt * std::abs(target_x - x);
-                y += (target_y - y) * dt * std::abs(target_x - x);
+                x += (target_x - x) * dt * fmax(std::abs(target_x - x), 1.0);
+                y += (target_y - y) * dt * fmax(std::abs(target_x - x), 1.0);
 
                 using namespace std;
 

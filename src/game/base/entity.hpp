@@ -252,7 +252,9 @@ namespace Game {
 
         virtual void render(Base::Application& app, Base::Renderer::VertexLayer& layer);
         virtual std::string name() const = 0;
-        virtual ~Entity() = default;
+        virtual ~Entity() {
+            if (parent) parent->disown(this, true);
+        }
 
         bool wants_to_despawn = false;
 

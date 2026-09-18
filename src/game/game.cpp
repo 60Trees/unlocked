@@ -3,7 +3,7 @@
  * @author 60Trees_ (github.com/60Trees)
  */
 
-// #define what_is_going_on 1000
+#define what_is_going_on 1000
 
 #include <base/app.hpp>
 #include <base/renderer.hpp>
@@ -86,7 +86,7 @@ struct RandomController : EntityController {
         {
             int8_t moving_dir_int = Action == MOVE_LEFT ? -1 : (Action == MOVE_RIGHT ? 1 : 0);
             const auto forced_dir = own.movement->forced_direction;
-            systems / light_shafts(forced_dir) {
+            {
                 if (forced_dir == LEFT) moving_dir_int = -1;
                 if (forced_dir == RIGHT) moving_dir_int = 1;
             }
@@ -738,6 +738,14 @@ struct GameClass : Application {
             level_data.player_starts.push_back({0, 100});
         }
         entities[players[0]].data.pos = level_data.player_starts[0];
+#ifdef what_is_going_on
+        for (int i = 0; i < what_is_going_on; i++) {
+            [&](Entity& e) {
+                e.data.pos = entities[players[0]].data.pos;
+                e.controller = make_unique<RandomController>();
+            }(entities[entities.spawn_entity("player")]);
+        }
+#endif
         entities[players[0]].controller = make_unique<KeyboardEntityController>();
         camera_following_entity = players[0];
 

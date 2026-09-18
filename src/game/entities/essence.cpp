@@ -164,7 +164,7 @@ struct Essence : Entity {
 
         for (Entity* sibling : p.children) {
             if (!sibling) continue;  // parent's child list can contain stale/despawned entries
-            auto other_triangle = dynamic_cast<Essence*>(sibling);
+            auto other_triangle = dynamic_cast<Essence*>(sibling); // HERE
             if (!other_triangle) continue;
             if (this == sibling) {
                 own_index = tri_count;
