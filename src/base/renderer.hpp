@@ -31,6 +31,7 @@ GETTER_DEFINITION(Base::BaseClass, GetRenderer);
 
 namespace Base {
     struct Renderer : BaseClass {
+        BaseClass* parent = nullptr;
         GETTER_CLASS_DEFINITION(Renderer);
         // <AI>
         enum class PixelFormat : uint8_t { R8Unorm, RGBA8Unorm };
@@ -157,6 +158,8 @@ namespace Base {
         struct Camera {
             float x = 0, y = 0;
             float target_x = 0, target_y = 0;
+            uint zoom_freeze_frames = 0;
+            uint camera_freeze_frames = 0;
 
             // TODO: Add screen shaking
             float screenshake = 0.0;

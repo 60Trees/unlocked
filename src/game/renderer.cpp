@@ -1,4 +1,6 @@
 #include <base/renderer.hpp>
+#include <base/app.hpp>
+#include <bit>
 #include <format>
 #include <string_view>
 #include <cstring>
@@ -941,9 +943,11 @@ void GameRenderer::loop() {
     ImGui::Render();
 #endif
 
-    uint64_t now = SDL_GetTicks();
-    double dt = lastTick ? (double)(now - lastTick) / 1000.0 : 0.0;
-    lastTick = now;
+    const auto fpscounter = 
+     dynamic_cast<Base::Application*>(parent)->get<Base::FpsCounter>();
+    const auto dt = fpscounter.deltaTime;
+    constexpr size_t x = sizeof(uint64_t), y = sizeof(long double);
+    uint64_t nowbits = std::bit_cast<uint64_t>((double)fpscounter.seconds_since_start);
 
     camera._target_zoom = camera.zoom;
 
@@ -962,7 +966,7 @@ void GameRenderer::loop() {
         if (camera.screenshake > 0.0f && screen_shake_pixels > 0) {
             // scary black magic hashing function >.< im scarreddd
 
-            uint64_t h = now;
+            uint64_t h = nowbits;
             h ^= h >> 30;
             h *= 0xbf58476d1ce4e5b9ULL;
             h ^= h >> 27;

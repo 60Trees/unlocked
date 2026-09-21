@@ -51,7 +51,6 @@ struct Point {
 extern "C" double dt_multiplier();
 
 using VertexArray = Renderer::VertexArray;
-// <AI>
 // Same test as Entity::colliding_with, but for two raw Hitboxes -- the Finish/NoFinish/
 // ShareFinish bounds are never spawned as real Entities, so there's no Entity to compare.
 static bool hitboxes_overlap(const Hitbox& a, const Hitbox& b) {
@@ -62,11 +61,6 @@ static Hitbox::vec2_t bottom_mid(const Hitbox& h) { return {(h.left() + h.right(
 
 // Translates `h` (preserving size/anchor) so its bottom-mid point lands on `target`.
 static void snap_bottom_mid_to(Hitbox& h, Hitbox::vec2_t target) { h.pos += target - bottom_mid(h); }
-// </AI>
-
-struct KeyboardControls {
-    SDL_Scancode up = SDL_SCANCODE_W, down = SDL_SCANCODE_S, left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_SPACE;
-};
 
 #ifdef what_is_going_on
 struct RandomController : EntityController {
@@ -107,8 +101,6 @@ struct RandomController : EntityController {
         own.controls.boost.update(app, tick_count % 3 == 0);
         time_left = 0;
 
-        own.controls.up.update(app, false);
-        own.controls.down.update(app, false);
         own.controls.jump.update(app, Action == JUMP);
 
         tick_count++;
@@ -117,8 +109,38 @@ struct RandomController : EntityController {
 #endif
 
 struct KeyboardEntityController : EntityController {
+    struct KeyboardControls {
+        SDL_Scancode left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_W, boost = SDL_SCANCODE_SPACE;
+
+        SDL_Scancode aim_up = SDL_SCANCODE_UP, aim_down = SDL_SCANCODE_DOWN, aim_left = SDL_SCANCODE_LEFT, aim_right = SDL_SCANCODE_RIGHT;
+    };
+
     KeyboardControls controls;
     span<const bool> keyboard;
+
+    /// NAN = not being held, INFINITY = being held but opressed
+    float get_aim_direction() {
+        int8_t vertical = 0, horizontal = 0;
+        if (keyboard[controls.aim_up]) vertical += 1;
+        if (keyboard[controls.aim_down]) vertical -= 1;
+        if (keyboard[controls.aim_left]) horizontal -= 1;
+        if (keyboard[controls.aim_right]) horizontal += 1;
+
+        if (vertical == 0 && horizontal == 0) {
+            force_stop_aiming = false;
+            return NAN;
+        }
+        if (force_stop_aiming) return INFINITY;
+
+        if (vertical > 0) return (horizontal * 45 + 360) % 360;
+        if (vertical < 0) return (-horizontal * 45 + 360 + 180) % 360;
+        return (horizontal * 90 + 360) % 360;
+    }
+    bool slowmo;
+    bool force_stop_aiming = false;
+
+    bool should_slow_motion() override { return slowmo; }
+
     virtual void update_controls(Entity& own, const Application& app) override {
         const auto deltaTime = app.get<FpsCounter>().deltaTime;
         const auto& r = app.get<Renderer>();
@@ -138,23 +160,27 @@ struct KeyboardEntityController : EntityController {
             own.controls.right.update(app, moving_dir && moving_dir_int != 0);
         }
 
-        own.controls.boost.update(app, SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_MASK(SDL_BUTTON_LEFT));
+        const auto aim_dir = get_aim_direction();
+        const bool is_aiming = !std::isnan(aim_dir) && !std::isinf(aim_dir);
 
-        {
-            auto worldmousepos = r.get_world_mouse_pos();
-            auto diff = glm::vec2{own.data.pos} - worldmousepos;
+        own.controls.boost.update(app, [&] {
+            //if (keyboard[controls.boost]) force_stop_aiming = true;
+            return keyboard[controls.boost];
+        }());
 
-            own.controls.focusDegrees = mth::fmod(-glm::degrees(std::atan2(diff.x, -diff.y)) + 360, 360);
-            debug_screen("a", own.controls.focusDegrees);
+        if (!is_aiming)
+            slowmo = false;
+        else {
+            own.controls.focusDegrees = aim_dir;
+            slowmo = true;
         }
 
-        own.controls.up.update(app, keyboard[controls.up]);
-        own.controls.down.update(app, keyboard[controls.down]);
         own.controls.jump.update(app, keyboard[controls.jump]);
     }
 };
 
 struct GameClass : Application {
+    GameClass() { this->renderer->parent = this; }
     LightShaftSystem light_shafts;
     EdgeGlowSystem edge_glow;
     BloomSystem bloom;
@@ -415,39 +441,13 @@ struct GameClass : Application {
         vector<glm::vec<2, double>> player_starts;
         vector<Renderer::CameraBound> camera_bounds;
 
-        // <AI>
-        // Finish/NoFinish/ShareFinish bounds, stored the same way camera bounds are --
-        // baked from the LDtk entity at load time, never spawned as real Entities.
-        // Hitbox is reused purely for its anchor-aware left()/right()/top()/bottom().
         std::optional<Hitbox> finish;      // BOTTOM_MID anchored, at most one
         std::vector<Hitbox> no_finish;     // TOP_LEFT anchored
         std::vector<Hitbox> share_finish;  // TOP_LEFT anchored
-        // </AI>
     };
-
-    // <AI>
-    // A "game entity" (Entity*, owned by EntityList) is the live, ticking thing that moves
-    // and renders every frame. An "ldtk entity" (ldtk::Entity) is just a static declaration
-    // inside the level file -- populate_level() reads each one once, at level-load time, and
-    // either spawns a game entity for it (entities.spawn_entity) or -- for PlayerStart /
-    // Finish / NoFinish / ShareFinish / Camera* -- stores it as a plain Hitbox/bound inside
-    // LevelData instead, with no game entity created at all. Everything below that deals
-    // with "the next level" only ever creates or destroys game entities; ldtk entities are
-    // read-only data that populate_level() alone is responsible for parsing.
 
     static LevelData& level_data_of(PlacedLevel& placed) { return *dynamic_cast<LevelData*>(placed.usrdata.get()); }
 
-    // Finds `current_ldtk_level`'s index within world 0's level list (world 0 matches what
-    // init() uses: world_handler.getlevel(0, 0)), then loads and fully populates the level
-    // right after it. Returns nullptr if `current_ldtk_level` isn't found, or is already the
-    // last level in the world.
-    //
-    // This is a single-active-level game (do_level_switch despawns everything that doesn't
-    // carry over), so a switch fully replaces world_handler.placed_levels rather than
-    // accumulating levels. spawn_level() below calls populate_level() exactly once for the
-    // new level -- that's the only place its game entities get spawned.
-    // NOTE: clearing placed_levels destroys the *current* level's LevelData (and PlacedLevel)
-    // -- callers must copy out anything they still need from it before calling this.
     PlacedLevel* load_next_level(const ldtk::Level& current_ldtk_level) {
         const auto& world = world_handler.getworld((size_t)0);
 
@@ -473,11 +473,7 @@ struct GameClass : Application {
 
         return &spawn_level(next_ldtk_level);
     }
-    // </AI>
 
-    // True if game entity `e` has "canfinish", overlaps the level's Finish bound, and isn't
-    // blocked by any NoFinish bound. Finish/NoFinish are plain Hitboxes baked from ldtk
-    // entities at load time -- there's no game entity behind them to tick or despawn.
     bool entity_triggers_finish(const Entity& e, const LevelData& level_data) {
         if (!level_data.finish || !e.has_attribute("canfinish")) return false;
         if (!hitboxes_overlap(e.data, *level_data.finish)) return false;
@@ -488,36 +484,17 @@ struct GameClass : Application {
         return true;
     }
 
-    // <AI>
-    // Switches from `current_ldtk_level` to the next level in the world, carrying over only
-    // the game entities that overlap a ShareFinish bound (and opt in via
-    // transfers_to_new_level()) -- everything else despawns.
-    //
-    // Order matters here:
-    //   1. Every *existing* (old-level) game entity's fate is decided and applied FIRST,
-    //      while `entities` still only contains the old level's entities. Only after that do
-    //      we load the next level, which spawns ITS OWN game entities via populate_level
-    //      (called exactly once, inside load_next_level -> spawn_level). That way the new
-    //      level's freshly-spawned game entities are never visible to the "does this overlap
-    //      the old ShareFinish bound" check, so they can't get wrongly marked to despawn.
-    //   2. populate_level() only ever runs once per level load -- there's no second call
-    //      here re-parsing the same ldtk entities into an already-populated LevelData (that
-    //      second call was what threw "Only one PlayerStart entity is allowed per level!").
-    // Despawning follows the same two-step pattern the main loop() uses: drop the entity's
-    // triangles from entitytris via entitytrisindex.remove_entity() *before* the entity
-    // itself is destroyed by clean_entities(), so entitytris never ends up holding a "ghost"
-    // triangle for an entity that no longer exists.
     void do_level_switch(const ldtk::Level& current_ldtk_level, const LevelData& level_data) {
-        // Copy out what we still need -- load_next_level() below clears placed_levels, which
-        // owns (and destroys) level_data.
         const std::vector<Hitbox> share_finish_bounds = level_data.share_finish;
+        const auto prev_player_end = level_data.finish;
+
         EntityList& entities = get<EntityList>();
 
-        // Step 1: decide every existing (old-level) game entity's fate and despawn the ones
-        // that don't carry over. Nothing from the next level exists yet at this point.
         std::vector<EntityList::index_t> surviving_entity_ids;
+
         for (auto& [entity_id, entity_ptr] : entities) {
             if (!entity_ptr) continue;
+
             Entity& e = *entity_ptr;
 
             const bool overlaps_share_finish = std::any_of(share_finish_bounds.begin(), share_finish_bounds.end(),
@@ -527,40 +504,67 @@ struct GameClass : Application {
                 surviving_entity_ids.push_back(entity_id);
             } else {
                 e.wants_to_despawn = true;
-                entitytrisindex.remove_entity(entity_id);  // drop its triangles before it's destroyed below
+                entitytrisindex.remove_entity(entity_id);
             }
         }
-        entities.clean_entities();  // actually erases everything just marked wants_to_despawn
 
-        // Step 2: load the next level. This is the ONLY populate_level() call it gets -- it
-        // spawns all of the new level's game entities (and bakes its own PlayerStart/Finish/
-        // NoFinish/ShareFinish/Camera bounds) exactly once.
+        entities.clean_entities();
+
         PlacedLevel* next_level = load_next_level(current_ldtk_level);
         if (!next_level) return;
+
         LevelData& next_data = level_data_of(*next_level);
+
         if (next_data.player_starts.empty()) return;
 
         const auto player_start = next_data.player_starts[0];
 
-        // Step 3: move the surviving old-level game entities onto the new PlayerStart. The
-        // new level's own game entities are never touched -- they're already positioned by
-        // whatever populate_level/spawn_entity did for them.
-        for (auto id : surviving_entity_ids)
-            if (entities.exists(id)) entities[id].data.pos = player_start;
+        auto shift_pos = [&](glm::vec<2, double>& pos) {
+            if (!prev_player_end) {
+                pos = player_start;
+                return;
+            }
 
-        // Step 4: rebuild entitytris for everything currently in `entities` -- the surviving
-        // old entities (just moved) plus the new level's freshly-spawned game entities (which
-        // have no entitytrisindex entry yet). add_entity() no-ops for ids already present, so
-        // this is safe to run unconditionally over the whole list.
+            pos -= prev_player_end->pos;
+            pos += player_start;
+        };
+        auto shift_x = [&](float& x) {
+            if (!prev_player_end) {
+                x = player_start.x;
+                return;
+            }
+
+            x -= prev_player_end->pos.x;
+            x += player_start.x;
+        };
+        auto shift_y = [&](float& y) {
+            if (!prev_player_end) {
+                y = player_start.y;
+                return;
+            }
+
+            y -= prev_player_end->pos.y;
+            y += player_start.y;
+        };
+
+        for (auto id : surviving_entity_ids) {
+            if (entities.exists(id)) shift_pos(entities[id].data.pos);
+        }
+
         for (auto& [entity_id, entity_ptr] : entities) {
             entitytrisindex.add_entity(entity_id);
             entity_ptr->render(*this, entitytris->at(entitytrisindex[entity_id]));
         }
 
-        renderer->camera.x = renderer->camera.target_x = player_start.x;
-        renderer->camera.y = renderer->camera.target_y = player_start.y;
+        shift_x(renderer->camera.x);
+        shift_x(renderer->camera.target_x);
+        shift_y(renderer->camera.y);
+        shift_y(renderer->camera.target_y);
+
+        renderer->camera.zoom_freeze_frames += 1;
+        renderer->camera.camera_freeze_frames += 1;
+        renderer->camera.screenshake += 1;
     }
-    // </AI>
 
     void check_finish() {
         auto& placed_level = world_handler.placed_levels[0];
@@ -571,18 +575,18 @@ struct GameClass : Application {
             if (!entity_ptr) continue;
             if (!entity_triggers_finish(*entity_ptr, level_data)) continue;
 
-            debug_screen("aaa", "Level is finishing!!!");
             do_level_switch(placed_level.level, level_data);
             break;  // placed_level / level_data are potentially dangling after this -- don't touch them again
         }
     }
-    const map<uint, string> kDefaultTileGroups = {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}};
+    const map<uint, string> kDefaultTileGroups = {
+        {0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}, {6, "Solid"}, {7, "Solid"}};
 
-    // Parses PlayerStart/Finish/NoFinish/ShareFinish/Camera-bound markers and spawns every
-    // other named entity for `placed_level`, populating `level_data` and the entity list in
-    // place. Shared between init() (first level) and spawn_level() (levels loaded on a switch).
     void populate_level(const Game::PlacedLevel& placed_level, LevelData& level_data) {
         EntityList& entities = get<EntityList>();
+        const auto c = placed_level.level.bg_color;
+        debug_screen("a", "Level colour: " << +c.r << ',' << +c.g << ',' << +c.b);
+        set_solid_background(c.r, c.g, c.b);
 
         const auto handle_entity = [&](const ldtk::Entity& entity, const std::string& name) {
             if (name == "PlayerStart") {
@@ -677,8 +681,6 @@ struct GameClass : Application {
             for (const auto& entity : layer.allEntities()) handle_entity(entity, entity.getName());
     }
 
-    // Creates and renders a PlacedLevel for `level` at `offset`, parses its entities into a
-    // fresh LevelData, and appends it to world_handler.placed_levels.
     PlacedLevel& spawn_level(const ldtk::Level& level, glm::vec<2, int> offset = {0, 0}) {
         auto level_data_ptr = make_shared<LevelData>();
         world_handler.placed_levels.push_back(PlacedLevel{level, offset, level_data_ptr, kDefaultTileGroups});
@@ -693,7 +695,6 @@ struct GameClass : Application {
 
         return placed;
     }
-    // </AI>
     void init() override {
         print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
 
@@ -715,17 +716,10 @@ struct GameClass : Application {
             print("Loaded world\n");
         }
 
-        {
-            const auto c = world_handler.main_world.allWorlds()[0].getBgColor();
-            debug_screen("bgcolour", "Background colour: " << +c.r << "," << +c.g << "," << +c.b);
-            // set_solid_background(c.r, c.g, c.b);
-            set_solid_background(0, 0, 0);
-        }
-
         world_handler.uploadAllTilesets(*renderer);
 
-        world_handler.placed_levels.push_back(PlacedLevel{world_handler.getlevel(0, 0), {0, 0}, make_shared<LevelData>(),
-            {{0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}}});
+        world_handler.placed_levels.push_back(
+            PlacedLevel{world_handler.getlevel(0, 0), {0, 0}, make_shared<LevelData>(), kDefaultTileGroups});
         world_handler.renderDirtyLevels(*leveltris);
         light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
         light_shafts.register_post_effect(*renderer);
@@ -793,7 +787,7 @@ struct GameClass : Application {
 
         EntityList& entities = get<EntityList>();
 
-        fps_counter->deltaTime *= (slow_motion ? dt_multiplier() : 1);
+        fps_counter->deltaTime *= (slow_motion ? dt_multiplier() : 0.9);
         const double dt = fps_counter->deltaTime;
         ASSUME(dt != NAN);
         ASSUME(dt > 0);
@@ -861,6 +855,8 @@ struct GameClass : Application {
 
         debug_screen(this << "x", "Player solid tile pos: " << ix << ',' << iy);
 
+        slow_motion = false;
+
         while (SDL_PollEvent(&event)) {
 #ifdef DEBUG_SCREEN
             ImGui_ImplSDL3_ProcessEvent(&event);
@@ -882,7 +878,7 @@ struct GameClass : Application {
                             entities[players[0]].data.vel *= 10;
                             break;
                         case SDLK_F:
-                            slow_motion = !slow_motion;
+                            slow_motion = true;
                             break;
                         case SDLK_V:
                             debug_screen("test1", "Yes Working level: " << &level0 << "\nYes working handler: " << &world_handler);
@@ -911,6 +907,13 @@ struct GameClass : Application {
                                 e->data.vel = {Random::real(-100, 100, 3), Random::real(-100, 100, 3)};
                             }
                         } break;
+                        case SDLK_J: {
+                            auto worldmousepos = renderer->get_world_mouse_pos();
+                            for (auto& [i, e] : entities) {
+                                if (e->name() != "Booster") continue;
+                                e->data.pos = worldmousepos;
+                            }
+                        }
                     }
                     inputs.do_inputs(event.key.key, 16.0f);
                     break;
@@ -954,6 +957,7 @@ struct GameClass : Application {
                 continue;
             }
             entity->controller->update_controls(*entity, *this);
+            if (entity->controller->should_slow_motion()) slow_motion = true;
             entity->tick_all(*this);
             if (entity->wants_to_despawn) should_clean_entities = true;
 

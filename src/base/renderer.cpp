@@ -12,8 +12,12 @@ void Base::Renderer::Camera::follow_point(glm::vec<2, double> point) {
     // double camera_speed_y = mth::abs(target_y - y);
 }
 void Base::Renderer::Camera::update_camera(double dt) {
-    x += (target_x - x) * dt * fmax(std::abs(target_x - x), 1.0);
-    y += (target_y - y) * dt * fmax(std::abs(target_y - y), 1.0);
+    if (camera_freeze_frames > 0) {
+        camera_freeze_frames -= 1;
+        return;
+    }
+    x += (target_x - x) * dt * fmin(fmax(std::abs(target_x - x), 1.0), 10.0);
+    y += (target_y - y) * dt * fmin(fmax(std::abs(target_y - y), 1.0), 10.0);
 
     using namespace std;
 
@@ -23,6 +27,10 @@ void Base::Renderer::Camera::update_camera(double dt) {
     }
 }
 void Base::Renderer::Camera::update_zoom(double dt) {
+    if (zoom_freeze_frames > 0) {
+        zoom_freeze_frames -= 1;
+        return;
+    }
     _real_zoom += (_target_zoom - _real_zoom) / 2 * dt * zoom_speed;
     if (mth::abs(_target_zoom - _real_zoom) <= zoom_snap_distance) _real_zoom = _target_zoom;
 }

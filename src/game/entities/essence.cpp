@@ -20,9 +20,11 @@ namespace {
     inline void sanitize(double& v, double fallback = 0.0) {
         if (!std::isfinite(v)) v = fallback;
     }
+
     inline void sanitize(float& v, float fallback = 0.0f) {
         if (!std::isfinite(v)) v = fallback;
     }
+
     inline void clamp_magnitude(double& v, double max_abs) {
         if (v > max_abs) v = max_abs;
         if (v < -max_abs) v = -max_abs;
@@ -33,13 +35,16 @@ struct Essence : Entity {
     Essence() { std::cout << "Essence " << this << ": " << *this << std::endl; }
 
     std::string name() const override { return "Essence"; }
+
     Hitbox get_defaults() const override { return {{4, 4}}; }
+
     bool does_render() const override { return true; }
 
     // 0-360
     float visual_rotation = 0;
     float triangle_side_length = 2;
     float visual_y_offset = 0;
+
     // in seconds
     float bobbing_sin_offset = 0;
 
@@ -48,7 +53,8 @@ struct Essence : Entity {
 
     glm::vec2 render_pos{};
 
-    glm::vec2 render_offset{};
+    // Smoothed angular position of the orbit.
+    float render_orbit_rotation = 0;
     bool render_initialized = false;
 
     Entity* last_seen_parent = nullptr;
@@ -72,14 +78,15 @@ struct Essence : Entity {
             stage = OWNED;
             return;
         }
+
         if (stage == OWNED) stage = UNOWNED;
+
         if (stage != UNOWNED) return;
 
         for (const auto& [i, e] : app.get<EntityList>())
             if (e->has_attribute("pick_up_triangles") && e->colliding_with(this)) {
                 e->adopt(this);
-                break;  // stop at the first valid parent -- don't hand the same essence to
-                        // every overlapping pick_up_triangles entity in the same tick
+                break;
             }
     }
 
@@ -92,19 +99,19 @@ struct Essence : Entity {
         orbit_around_radius = max(p.data.size.x, p.data.size.y) * 0.5;
 
         const float rotation_offset = [&] {
-            //[[assume(triangle_count > 0)]];
-            const float spacing = 360.0 / tri_count;
-            return spacing * own_index;
+            const float spacing = 360.0f / static_cast<float>(tri_count);
+            return spacing * static_cast<float>(own_index);
         }();
 
         const auto& seconds_since_start = app.get<Base::FpsCounter>().seconds_since_start;
 
-        constexpr float rps = -0.2;
+        constexpr float rps = -0.2f;
 
-        orbit_rotation = mth::fmod(rotation_offset + seconds_since_start * (360 * rps) + 360, 360);
+        orbit_rotation = mth::fmod(rotation_offset + seconds_since_start * (360.0f * rps) + 360.0f, 360.0f);
     }
 
     enum class Stage : char { OWNED = 'o', LEAVING_ORBIT = 'l', UNOWNED = 'u' } stage = UNOWNED;
+
     constexpr static Stage OWNED = Stage::OWNED;
     constexpr static Stage LEAVING_ORBIT = Stage::LEAVING_ORBIT;
     constexpr static Stage UNOWNED = Stage::UNOWNED;
@@ -113,21 +120,26 @@ struct Essence : Entity {
         switch (s) {
             case Stage::OWNED:
                 return "OWNED";
+
             case Stage::LEAVING_ORBIT:
                 return "LEAVING_ORBIT";
+
             case Stage::UNOWNED:
                 return "UNOWNED";
         }
+
         return "INVALID (" + std::to_string(static_cast<int>(s)) + ")";
-    };
+    }
 
     ControlData is_owned;
     Entity* previous_parent = nullptr;
 
     bool has_attribute(std::string_view to_find) const override {
         if (to_find == "triggers") return !parent;
+
         return Entity::has_attribute(to_find);
     }
+    std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",pushed2,"; }
 
     void tick(Base::Application& app) override {
         Entity::tick(app);
@@ -136,6 +148,7 @@ struct Essence : Entity {
         sanitize(data.pos.y);
         sanitize(data.vel.x);
         sanitize(data.vel.y);
+
         clamp_magnitude(data.vel.x, 1e5);
         clamp_magnitude(data.vel.y, 1e5);
 
@@ -146,16 +159,20 @@ struct Essence : Entity {
         if (parent && last_seen_parent && parent != last_seen_parent) {
             render_initialized = false;
         }
+
         last_seen_parent = parent;
 
         if (!parent) {
             is_owned.update(app, false);
 
             data.vel += get_gravity() * app.get<FpsCounter>().deltaTime * gravity_multiplier();
+
             sanitize(data.vel.x);
             sanitize(data.vel.y);
+
             return;
         }
+
         Entity& p = *parent;
 
         size_t own_index = 0;
@@ -163,13 +180,17 @@ struct Essence : Entity {
         bool found_self = false;
 
         for (Entity* sibling : p.children) {
-            if (!sibling) continue;  // parent's child list can contain stale/despawned entries
-            auto other_triangle = dynamic_cast<Essence*>(sibling); // HERE
+            if (!sibling) continue;
+
+            auto other_triangle = dynamic_cast<Essence*>(sibling);
+
             if (!other_triangle) continue;
+
             if (this == sibling) {
                 own_index = tri_count;
                 found_self = true;
             }
+
             tri_count++;
         }
 
@@ -182,32 +203,47 @@ struct Essence : Entity {
 
         if (stage == OWNED && p.controls.boost.just_pressed() && own_index == 0) {
             p.controls.boost.time = app.get<FpsCounter>().deltaTime;
+
             stage = LEAVING_ORBIT;
             previous_parent = parent;
 
             auto dir = p.controls.focusDegrees;
-            sanitize(dir);  // a corrupted parent shouldn't be able to NaN-poison us or itself below
+            sanitize(dir);
 
             const double speed = 300;
+
             data.pos = p.data.pos;
 
             const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
+
             const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
 
             glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+
             sanitize(boost.x);
             sanitize(boost.y);
 
-            data.vel = p.data.vel + boost;
+            data.vel = boost;
+
             sanitize(data.vel.x);
             sanitize(data.vel.y);
 
-            p.data.vel += boost * -0.5;
+            if ((p.data.vel.x >= 0) == (boost.x >= 0))
+                p.data.vel.x = boost.x * -0.5;
+            else
+                p.data.vel.x += boost.x * -0.5;
+            if ((p.data.vel.y >= 0) == (boost.y >= 0))
+                p.data.vel.y = boost.y * -0.5;
+            else
+                p.data.vel.y += boost.y * -0.5;
+
             sanitize(p.data.vel.x);
             sanitize(p.data.vel.y);
 
             p.disown(this, true);
-            last_seen_parent = nullptr;  // this disown is intentional, not a "silent" reparent
+
+            // This disown is intentional, not a silent reparent.
+            last_seen_parent = nullptr;
         }
 
         is_owned.update(app, !(!parent));
@@ -216,6 +252,7 @@ struct Essence : Entity {
     void render(Base::Application& app, Base::Renderer::VertexLayer& layer) override {
         auto& r = app.get<Base::Renderer>();
         auto& fps = app.get<Base::FpsCounter>();
+
         const auto& seconds_since_start = fps.seconds_since_start;
 
         using namespace Base;
@@ -226,7 +263,10 @@ struct Essence : Entity {
         constexpr double rps = 0.5;
 
         visual_rotation += fps.deltaTime * (360 * rps) * 0.5;
-        if (!parent) visual_rotation += (abs(data.vel.x) + abs(data.vel.y)) * fps.deltaTime * 10;
+
+        if (!parent) {
+            visual_rotation += (abs(data.vel.x) + abs(data.vel.y)) * fps.deltaTime * 10;
+        }
 
         visual_rotation = mth::fmod(visual_rotation + 360.f, 360.f);
 
@@ -236,7 +276,9 @@ struct Essence : Entity {
         }
 
         layer.material.pixel_shader = r.builtin_coloured_pshader();
+
         layer.material.vertex_shader = r.builtin_worldspace_vshader();
+
         layer.material.blend_mode = Renderer::Alpha;
 
         layer.vertices.clear();
@@ -253,59 +295,82 @@ struct Essence : Entity {
         V2 C = {0, 2 * h / 3};
 
         float rad = visual_rotation * (M_PI / 180.f);
+
         float cs = std::cos(rad);
         float sn = std::sin(rad);
 
         auto rot = [&](V2 p) { return V2{p.x * cs - p.y * sn, p.x * sn + p.y * cs}; };
 
-        // Orbit
-        float orbit_rad = orbit_rotation * (M_PI / 180.f);
+        /*
+         * Orbit
+         *
+         * Do NOT smooth the Cartesian X/Y offset.
+         *
+         * Smoothing X/Y directly causes a rotating vector to lose
+         * magnitude, which makes the orbit radius shrink.
+         *
+         * Instead, smooth the ANGLE and reconstruct the position
+         * from sin/cos. This guarantees that the orbit radius remains
+         * exactly orbit_around_radius.
+         */
+
+        float target_angle = orbit_rotation * (M_PI / 180.f);
+
+        if (!render_initialized) {
+            render_orbit_rotation = orbit_rotation;
+            render_initialized = true;
+        }
+
+        /*
+         * Find the shortest angular distance between the current
+         * rendered angle and the target angle.
+         *
+         * This avoids the 359 -> 0 degree wraparound causing the
+         * triangle to rotate all the way around the circle.
+         */
+        float angle_difference = orbit_rotation - render_orbit_rotation;
+
+        while (angle_difference > 180.0f) angle_difference -= 360.0f;
+
+        while (angle_difference < -180.0f) angle_difference += 360.0f;
+
+        /*
+         * Frame-rate independent exponential smoothing.
+         *
+         * Even at very high FPS, this approaches the target correctly.
+         */
+        float smoothing_t = 1.0f - std::exp(-12.0f * std::max(0.0f, static_cast<float>(fps.deltaTime)));
+
+        render_orbit_rotation += angle_difference * smoothing_t;
+
+        render_orbit_rotation = mth::fmod(render_orbit_rotation + 360.0f, 360.0f);
+
+        float orbit_rad = render_orbit_rotation * (M_PI / 180.f);
+
         float ocs = std::cos(orbit_rad);
         float osn = std::sin(orbit_rad);
 
         V2 orbit_offset = {orbit_around_radius * ocs, orbit_around_radius * osn};
 
-        // Base center
-        V2 real_center = {float(data.pos.x + data.size.x / 2.f), float(data.pos.y + data.size.y / 2.f + visual_y_offset)};
-
-        // Apply orbit
-        real_center.x += orbit_offset.x;
-        real_center.y += orbit_offset.y;
-
-        // Convert the target into a position relative to the parent.
-        //
-        // `data.pos` follows the parent, so we don't want to smooth the
-        // parent's movement itself. We only want to smooth the triangle's
-        // movement relative to the parent.
         V2 parent_center = {float(data.pos.x + data.size.x / 2.f), float(data.pos.y + data.size.y / 2.f + visual_y_offset)};
 
-        V2 target_offset = {orbit_around_radius * ocs, orbit_around_radius * osn};
-
-        if (!render_initialized) {
-            render_offset = {target_offset.x, target_offset.y};
-            render_initialized = true;
-        }
-
-        // If the smoothing accumulator itself ever went non-finite (e.g. picked up a NaN from a
-        // bad frame before tick()'s sanitizing existed, or a save/replay glitch), it would stay
-        // broken forever -- `x += (target - x) * t` never recovers from NaN on its own. Snap it
-        // back to the target instead of silently rendering garbage every frame after.
-        if (!std::isfinite(render_offset.x) || !std::isfinite(render_offset.y)) {
-            render_offset = {target_offset.x, target_offset.y};
-        }
-
-        float t = 1.0f - std::exp(-12.0f * float(fps.deltaTime));
-
-        render_offset += (glm::vec2{target_offset.x, target_offset.y} - render_offset) * t;
-
-        V2 center = {parent_center.x + render_offset.x, parent_center.y + render_offset.y};
+        /*
+         * The radius is now mathematically constant:
+         *
+         *     length(orbit_offset) == orbit_around_radius
+         *
+         * regardless of FPS or deltaTime.
+         */
+        V2 center = {parent_center.x + orbit_offset.x, parent_center.y + orbit_offset.y};
 
         A = rot(A);
         A.x += center.x;
         A.y += center.y;
+
         B = rot(B);
         B.x += center.x;
         B.y += center.y;
+
         C = rot(C);
         C.x += center.x;
         C.y += center.y;
@@ -315,7 +380,8 @@ struct Essence : Entity {
         auto set = [&](Renderer::Vertex& v, V2 p) {
             v.pos.world.x = p.x;
             v.pos.world.y = p.y;
-            v.shaderdata.rgba_combined = 0xff00ffff;  // yellow
+
+            v.shaderdata.rgba_combined = 0xff00ffff;
         };
 
         set(tris[0], A);
@@ -324,13 +390,17 @@ struct Essence : Entity {
 
         for (auto& t : tris) {
             t.pos.world.depth = 0.0f;
+
             const auto normalize_float = [](float& f) {
                 if (isinf(f) || isnan(f)) f = 0.0f;
             };
+
             normalize_float(t.pos.world.x);
             normalize_float(t.pos.world.y);
-            // that's literally everything in Renderer::Vertex
-            // its all unions
+
+            // That's literally everything in Renderer::Vertex.
+            // It's all unions.
+
             layer.vertices.push_back(t);
         }
     }

@@ -129,6 +129,7 @@ namespace Game {
         virtual ~EntityController() = default;
         virtual void digest_event(SDL_Event& e) {}
         virtual void update_controls(Entity& own, const Base::Application&) {}
+        virtual bool should_slow_motion() { return false; }
     };
 
     struct Entity {
@@ -175,7 +176,7 @@ namespace Game {
         }
 
         struct Controls {
-            ControlData up, down, left, right;
+            ControlData left, right;
             ControlData boost;
             ControlData jump;
             // NAN = not focused, 0-360 is angle

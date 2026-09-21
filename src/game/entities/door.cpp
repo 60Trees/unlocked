@@ -44,7 +44,7 @@ struct Door : PuzzleObject {
 
     inline bool is_currently_open(const Base::Application& app) const {
         const auto x = app.get<Game::PuzzleState>().active_colours;
-        if (!x.contains(colour)) return false;
+        if (!x.contains(colour)) return inverted;
         return x.at(colour) ? !inverted : inverted;
     }
 
@@ -156,6 +156,4 @@ struct Door : PuzzleObject {
             for (int iy = tilepos.y; iy < tilepos.y + height; iy++)
                 app.get<WorldHandler>().setTile(*own_layer->level, {ix, iy}, is_open ? 1 : 0);
     }
-};
-
-_REGISTER_FOR(new Door(), "Door", Entity);
+} _REGISTER_FOR(new Door(), "Door", Entity);
