@@ -14,8 +14,8 @@ struct BloomSystem {
     float threshold = 0.95f;  /// saturation AND brightness must both exceed this
     float softness = 0.01f;   /// half-width of the threshold's soft edge (0.94..0.96 by default)
     float radius = 5.0f;      /// world units (game pixels)
-    float intensity = 1.5f;   /// small bright details blur to a low peak, so this wants to be > 1
-    uint32_t taps = 8;       /// cost knob: texture reads per pixel
+    float intensity = 2.0f;   /// small bright details blur to a low peak, so this wants to be > 1
+    uint32_t taps = 4;       /// cost knob: texture reads per pixel
 
     struct ParamsCPU {
         glm::vec4 view;   // px_per_unit, viewport.xy, taps

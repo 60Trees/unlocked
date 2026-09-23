@@ -21,7 +21,15 @@ struct Booster : Entity {
 
     bool does_render() const override { return !invisible; }
     AnimationFrame get_anim_frame(Base::Application&) const override {
-        glm::vec<2, uint> top_left = {64, 0};
+        const auto top_left = [&] -> glm::vec<2, uint> {
+            if (boost_dir.y < 0) return {64, 12};
+            if (boost_dir.y > 0) return {64, 0};
+            if (boost_dir.x < 0) return {76, 0};
+            if (boost_dir.x > 0) return {76, 12};
+            // in between the four textures so i know
+            // if its buggy
+            return {70, 5};
+        }();
         return {.top_left = top_left, .size = {12, 12}, .tileset = "assets/buttons_n_shi.png", .direction = RIGHT};
     }
 
@@ -45,7 +53,8 @@ struct Booster : Entity {
             if (!e) continue;
 
             bool immediate;
-            if (e->has_attribute("pushed2")) immediate = true;
+            if (e->has_attribute("pushed2"))
+                immediate = true;
             else if (e->has_attribute("pushed1"))
                 immediate = false;
             else

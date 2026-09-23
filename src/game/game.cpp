@@ -3,7 +3,7 @@
  * @author 60Trees_ (github.com/60Trees)
  */
 
-//#define what_is_going_on 1000
+// #define what_is_going_on 1000
 
 #include <base/app.hpp>
 #include <base/renderer.hpp>
@@ -93,8 +93,7 @@ struct RandomController : EntityController {
             own.controls.right.update(app, moving_dir && moving_dir_int != 0);
         }
 
-        if (Action == SHOOT) {
-            own.controls.focusDegrees = mth::fmod(visualRandom(&own + seed, 0, 360) + 360, 360);
+        if (Action == SHOOT) { own.controls.focusDegrees = mth::fmod(visualRandom(&own + seed, 0, 360) + 360, 360);
             seed++;
         }
         // own.controls.boost.update(app, Action == SHOOT);
@@ -108,11 +107,20 @@ struct RandomController : EntityController {
 };
 #endif
 
+// my laptop keyboard has leaf bits in it
+// its arrow keys are broken ):
+//#define ARROW_KEYS_BROKEN
+
 struct KeyboardEntityController : EntityController {
     struct KeyboardControls {
         SDL_Scancode left = SDL_SCANCODE_A, right = SDL_SCANCODE_D, jump = SDL_SCANCODE_W, boost = SDL_SCANCODE_SPACE;
 
+#ifdef ARROW_KEYS_BROKEN
+        // this is for numpad
+        SDL_Scancode aim_up = SDL_SCANCODE_KP_5, aim_down = SDL_SCANCODE_KP_2, aim_left = SDL_SCANCODE_KP_1, aim_right = SDL_SCANCODE_KP_3;
+#else
         SDL_Scancode aim_up = SDL_SCANCODE_UP, aim_down = SDL_SCANCODE_DOWN, aim_left = SDL_SCANCODE_LEFT, aim_right = SDL_SCANCODE_RIGHT;
+#endif
     };
 
     KeyboardControls controls;
@@ -164,7 +172,7 @@ struct KeyboardEntityController : EntityController {
         const bool is_aiming = !std::isnan(aim_dir) && !std::isinf(aim_dir);
 
         own.controls.boost.update(app, [&] {
-            //if (keyboard[controls.boost]) force_stop_aiming = true;
+            // if (keyboard[controls.boost]) force_stop_aiming = true;
             return keyboard[controls.boost];
         }());
 
@@ -674,6 +682,8 @@ struct GameClass : Application {
                 return;
             }
 
+            //if (name == "Essence")
+            //    for (int i = 0; i < 50; i++) entities.spawn_entity(name, &entity);
             entities.spawn_entity(name, &entity);
         };
 
@@ -723,6 +733,7 @@ struct GameClass : Application {
         world_handler.renderDirtyLevels(*leveltris);
         light_shafts.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
         light_shafts.register_post_effect(*renderer);
+        edge_glow.bake_level(*renderer, world_handler.all_level_tilemaps[&world_handler.placed_levels[0].level]);
         edge_glow.register_post_effect(*renderer);
         bloom.register_post_effect(*renderer);
 
@@ -868,9 +879,9 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     switch (event.key.key) {
-                        case SDLK_ESCAPE:
-                            running = false;
-                            break;
+                        //case SDLK_ESCAPE:
+                        //    running = false;
+                        //    break;
                         case SDLK_R:
                             entities[players[0]].data.pos = level_data.player_starts[0];
                             break;

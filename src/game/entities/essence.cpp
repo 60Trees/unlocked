@@ -42,7 +42,7 @@ struct Essence : Entity {
 
     // 0-360
     float visual_rotation = 0;
-    float triangle_side_length = 2;
+    virtual float get_side_length(Application& app) { return 2.0f; }
     float visual_y_offset = 0;
 
     // in seconds
@@ -228,11 +228,11 @@ struct Essence : Entity {
             sanitize(data.vel.x);
             sanitize(data.vel.y);
 
-            if ((p.data.vel.x >= 0) == (boost.x >= 0))
+            if ((p.data.vel.x >= 0) == (boost.x >= 0) && mth::abs(boost.x) > 50)
                 p.data.vel.x = boost.x * -0.5;
             else
                 p.data.vel.x += boost.x * -0.5;
-            if ((p.data.vel.y >= 0) == (boost.y >= 0))
+            if ((p.data.vel.y >= 0) == (boost.y >= 0) && mth::abs(boost.y) > 50)
                 p.data.vel.y = boost.y * -0.5;
             else
                 p.data.vel.y += boost.y * -0.5;
@@ -248,6 +248,8 @@ struct Essence : Entity {
 
         is_owned.update(app, !(!parent));
     }
+
+    virtual uint32_t get_triangle_abgr(Application& app) { return 0xff00ffff; }
 
     void render(Base::Application& app, Base::Renderer::VertexLayer& layer) override {
         auto& r = app.get<Base::Renderer>();
@@ -283,7 +285,7 @@ struct Essence : Entity {
 
         layer.vertices.clear();
 
-        float s = triangle_side_length;
+        float s = get_side_length(app);
         float h = s * std::sqrt(3.f) / 2.f;
 
         struct V2 {
@@ -381,7 +383,7 @@ struct Essence : Entity {
             v.pos.world.x = p.x;
             v.pos.world.y = p.y;
 
-            v.shaderdata.rgba_combined = 0xff00ffff;
+            v.shaderdata.rgba_combined = get_triangle_abgr(app);
         };
 
         set(tris[0], A);
@@ -405,3 +407,201 @@ struct Essence : Entity {
         }
     }
 } _REGISTER_FOR(new Essence(), "Essence", Entity);
+
+/// My triangle is lgbt and has multiple phases
+struct GaeEssence : Essence {
+    float get_side_length(Application& app) override { return 3.f; }
+    static uint32_t pack_abgr(float a, float b, float g, float r) {
+        auto to_u8 = [](float v) { return static_cast<uint32_t>(std::clamp(v, 0.f, 1.f) * 255.f); };
+        return (to_u8(a) << 24) | (to_u8(b) << 16) | (to_u8(g) << 8) | to_u8(r);
+    }
+
+    bool has_been_taken = false;
+
+    static float lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+    uint32_t get_triangle_abgr(Application& app) override {
+        const float t = static_cast<float>(app.get<FpsCounter>().seconds_since_start);
+        const float phase = std::fmod(t, 3.0f);     // 0 → 3
+        const float f = phase - std::floor(phase);  // fractional part 0 → 1
+
+        // Define colours in ABGR
+        const float blue[4] = {1, 0, 0, 1};
+        const float yellow[4] = {1, 0, 1, 1};
+        const float magenta[4] = {1, 1, 0, 1};
+
+        const float* c0;
+        const float* c1;
+
+        if (phase < 1.f) {
+            c0 = blue;
+            c1 = yellow;
+        } else if (phase < 2.f) {
+            c0 = yellow;
+            c1 = magenta;
+        } else {
+            c0 = magenta;
+            c1 = blue;
+        }
+
+        float a = lerp(c0[0], c1[0], f);
+        float b = lerp(c0[1], c1[1], f);
+        float g = lerp(c0[2], c1[2], f);
+        float r = lerp(c0[3], c1[3], f);
+
+        return pack_abgr(a, b, g, r);
+    }
+
+    void tick(Application& app) override {
+        Entity::tick(app);
+
+        sanitize(data.pos.x);
+        sanitize(data.pos.y);
+        sanitize(data.vel.x);
+        sanitize(data.vel.y);
+
+        clamp_magnitude(data.vel.x, 1e5);
+        clamp_magnitude(data.vel.y, 1e5);
+
+        orbit_around_radius = 0;
+
+        look_for_parent(app);
+
+        if (parent && last_seen_parent && parent != last_seen_parent) {
+            render_initialized = false;
+        }
+
+        last_seen_parent = parent;
+
+        if (has_been_taken) app.get<Renderer>().camera.screenshake = 0.1;
+
+        if (!parent) {
+            is_owned.update(app, false);
+
+            data.vel += get_gravity() * app.get<FpsCounter>().deltaTime * gravity_multiplier();
+
+            sanitize(data.vel.x);
+            sanitize(data.vel.y);
+
+            return;
+        }
+
+        has_been_taken = true;
+
+        Entity& p = *parent;
+
+        size_t own_index = 0;
+        size_t tri_count = 1;
+        bool found_self = true;
+
+        for (Entity* rawsibling : p.children) {
+            if (!rawsibling) continue;
+            if (rawsibling == this) continue;
+            Essence* sibling = dynamic_cast<Essence*>(rawsibling);
+            if (!sibling) continue;
+
+            auto shoot_sibling = [sibling, &p](Application& app) {
+                p.controls.boost.time = app.get<FpsCounter>().deltaTime;
+
+                Essence& s = *sibling;
+
+                s.stage = LEAVING_ORBIT;
+                s.previous_parent = s.parent;
+
+                float dir = Random::real(0, 359, 1);
+                sanitize(dir);
+
+                const double speed = 300;
+
+                s.data.pos = p.data.pos;
+
+                const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
+
+                const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
+
+                glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+
+                sanitize(boost.x);
+                sanitize(boost.y);
+
+                s.data.vel = boost;
+
+                sanitize(s.data.vel.x);
+                sanitize(s.data.vel.y);
+
+                // if ((p.data.vel.x >= 0) == (boost.x >= 0) && mth::abs(boost.x) > 50)
+                //     p.data.vel.x = boost.x * -0.5;
+                // else
+                //     p.data.vel.x += boost.x * -0.5;
+                // if ((p.data.vel.y >= 0) == (boost.y >= 0) && mth::abs(boost.y) > 50)
+                //     p.data.vel.y = boost.y * -0.5;
+                // else
+                //     p.data.vel.y += boost.y * -0.5;
+
+                // sanitize(p.data.vel.x);
+                // sanitize(p.data.vel.y);
+
+                p.disown(&s, true);
+
+                // This disown is intentional, not a silent reparent.
+                s.last_seen_parent = nullptr;
+            };
+            // Becomes single child
+            shoot_sibling(app);
+        }
+
+        if (!found_self || tri_count == 0) {
+            is_owned.update(app, false);
+            return;
+        }
+
+        update_orbit_rotation(own_index, tri_count, app, p);
+
+        if (stage == OWNED && p.controls.boost.just_pressed() && own_index == 0) {
+            p.controls.boost.time = app.get<FpsCounter>().deltaTime;
+
+            stage = LEAVING_ORBIT;
+            previous_parent = parent;
+
+            auto dir = p.controls.focusDegrees;
+            sanitize(dir);
+
+            const double speed = 300;
+
+            data.pos = p.data.pos;
+
+            const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
+
+            const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
+
+            glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+
+            sanitize(boost.x);
+            sanitize(boost.y);
+
+            data.vel = boost;
+
+            sanitize(data.vel.x);
+            sanitize(data.vel.y);
+
+            if ((p.data.vel.x >= 0) == (boost.x >= 0) && mth::abs(boost.x) > 50)
+                p.data.vel.x = boost.x * -0.5;
+            else
+                p.data.vel.x += boost.x * -0.5;
+            if ((p.data.vel.y >= 0) == (boost.y >= 0) && mth::abs(boost.y) > 50)
+                p.data.vel.y = boost.y * -0.5;
+            else
+                p.data.vel.y += boost.y * -0.5;
+
+            sanitize(p.data.vel.x);
+            sanitize(p.data.vel.y);
+
+            p.disown(this, true);
+
+            // This disown is intentional, not a silent reparent.
+            last_seen_parent = nullptr;
+        }
+
+        is_owned.update(app, !(!parent));
+    }
+} _REGISTER_FOR(new GaeEssence(), "RainbowEssence", Entity);
