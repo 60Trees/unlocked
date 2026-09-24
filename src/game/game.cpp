@@ -36,9 +36,7 @@
 #include "game/systems/bloom.hpp"
 #include "game/systems/edge_glow.hpp"
 
-#ifdef DEBUG_SCREEN
-#    include <imgui_impl_sdl3.h>
-#endif
+#include <imgui_impl_sdl3.h>
 
 using namespace std;
 using namespace Game;
@@ -93,7 +91,8 @@ struct RandomController : EntityController {
             own.controls.right.update(app, moving_dir && moving_dir_int != 0);
         }
 
-        if (Action == SHOOT) { own.controls.focusDegrees = mth::fmod(visualRandom(&own + seed, 0, 360) + 360, 360);
+        if (Action == SHOOT) {
+            own.controls.focusDegrees = mth::fmod(visualRandom(&own + seed, 0, 360) + 360, 360);
             seed++;
         }
         // own.controls.boost.update(app, Action == SHOOT);
@@ -109,7 +108,7 @@ struct RandomController : EntityController {
 
 // my laptop keyboard has leaf bits in it
 // its arrow keys are broken ):
-//#define ARROW_KEYS_BROKEN
+// #define ARROW_KEYS_BROKEN
 
 struct KeyboardEntityController : EntityController {
     struct KeyboardControls {
@@ -198,32 +197,10 @@ struct GameClass : Application {
         return this->get<Game::EntityList>();
     }();
 
-    EntityList::index_t camera_following_entity = EntityList::null_index;
-
     vector<EntityList::index_t> players{};
 
     using TexturedRectDescriptor = Renderer::TexturedRectDescriptor;
     using ColouredRectDescriptor = Renderer::ColouredRectDescriptor;
-
-    // New pixel shader for the saturation post effect.
-    // prevTex, prevSamp, params, and VSOut are already declared by buildPostPipeline() --
-    // this only needs to define fs_main.
-    static constexpr string_view saturationPS = R"(
-    @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
-        let colour = textureSample(prevTex, prevSamp, in.uv);
-        let sat = params[0].x;
-        let luma = dot(colour.rgb, vec3f(0.2126, 0.7152, 0.0722));
-        let outRGB = mix(vec3f(luma), colour.rgb, sat);
-        return vec4f(outRGB, colour.a);
-    }
-    )";
-
-    // 1.0 = unchanged, >1.0 = more saturated, 0.0 = grayscale.
-    // Padded to 16 bytes just for clarity; kParamMax (256B) gives plenty of room if you add more fields later.
-    struct SaturationParams {
-        float saturation;
-        float _pad[3];
-    } saturationParams{1.0f};
 
     shared_ptr<VertexArray> leveltris = make_shared<VertexArray>();
     shared_ptr<VertexArray> entitytris = make_shared<VertexArray>();
@@ -276,43 +253,6 @@ struct GameClass : Application {
 
     Renderer::RenderQueue renderqueue{};
 
-    static constexpr std::string_view kDitherGradientPS = R"(
-    struct Transform { offset: vec2f, scale: vec2f };
-    @group(0) @binding(0) var<uniform> transform: Transform;
-    @group(2) @binding(0) var<uniform> params: array<vec4f, 16>;
-
-    const bayer4x4 = array<f32, 16>(
-        0.0,  8.0,  2.0, 10.0,
-        12.0,  4.0, 14.0,  6.0,
-        3.0, 11.0,  1.0,  9.0,
-        15.0,  7.0, 13.0,  5.0
-    );
-
-    @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
-        let colourA   = params[0];        // top colour
-        let colourB   = params[1];        // bottom colour
-        let pixelSize = max(params[2].x, 1.0);
-
-        let resolution = vec2f(2.0) / transform.scale;
-        let blockPos   = floor(in.pos.xy / pixelSize) * pixelSize;
-        let t          = clamp(blockPos.y / resolution.y, 0.0, 1.0);
-
-        let bx = u32(blockPos.x / pixelSize) % 4u;
-        let by = u32(blockPos.y / pixelSize) % 4u;
-        let threshold = bayer4x4[by * 4u + bx] / 16.0;
-
-        return mix(colourA, colourB, step(threshold, t));
-    }
-    )";
-
-    struct DitherBgParams {
-        float colourA[4];
-        float colourB[4];
-        float pixelSize;
-        float _pad[3];
-    };
-    DitherBgParams ditherBgParams{};  // member of GameClass -- must outlive the frame it's uploaded on
-
     static constexpr uint32_t pack_rgba_from_rrggbb(uint32_t rrggbb) {
         rrggbb &= 0xFFFFFF;  // ignore/require: only RRGGBB, top byte is never colour data
         uint8_t r = (rrggbb >> 16) & 0xFF;
@@ -339,55 +279,6 @@ struct GameClass : Application {
 
         auto operator==(const PrevBG& oth) const { return memcmp(this, &oth, sizeof(*this)); }
     } prev_bg;
-
-    void set_dithered_gradient_background(uint32_t top, uint32_t bottom, float pixelSize = 4.0f) {
-        {
-            PrevBG thisbg;
-            thisbg.type = thisbg.Dithered;
-            thisbg.data.dithered = {top, bottom, pixelSize};
-            if (prev_bg == thisbg) return;
-            prev_bg = thisbg;
-        }
-        auto unpack = [](uint32_t c, float* out) {
-            out[0] = ((c >> 0) & 0xFF) / 255.0f;
-            out[1] = ((c >> 8) & 0xFF) / 255.0f;
-            out[2] = ((c >> 16) & 0xFF) / 255.0f;
-            out[3] = ((c >> 24) & 0xFF) / 255.0f;
-        };
-        unpack(pack_rgba_from_rrggbb(top), ditherBgParams.colourA);
-        unpack(pack_rgba_from_rrggbb(bottom), ditherBgParams.colourB);
-        ditherBgParams.pixelSize = pixelSize;
-
-        background->clear();
-        background->push_back({});
-        auto& layer = background->back();
-        layer.material.vertex_shader = renderer->builtin_uispace_vshader();
-        layer.material.pixel_shader = kDitherGradientPS;
-        layer.material.screenspace = true;
-        layer.material.blend_mode = Base::Renderer::Opaque;
-        layer.material.params = std::as_bytes(std::span(&ditherBgParams, 1));
-        make_screen_gradient_quad(0, 0, 0, 0, layer.vertices);  // vertex colour is unused by this shader
-    }
-
-    void set_gradient_background(uint32_t top, uint32_t bottom) {
-        {
-            PrevBG thisbg;
-            thisbg.type = thisbg.Gradient;
-            thisbg.data.gradient = {top, bottom};
-            if (prev_bg == thisbg) return;
-            prev_bg = thisbg;
-        }
-        background->clear();
-        background->push_back({});
-        auto& layer = background->back();
-        layer.material.vertex_shader = renderer->builtin_uispace_vshader();
-        layer.material.pixel_shader = renderer->builtin_coloured_pshader();
-        layer.material.screenspace = true;
-        layer.material.blend_mode = Base::Renderer::Opaque;
-        const auto top_packed = pack_rgba_from_rrggbb(top);
-        const auto bottom_packed = pack_rgba_from_rrggbb(bottom);
-        make_screen_gradient_quad(top_packed, top_packed, bottom_packed, bottom_packed, layer.vertices);
-    }
 
     void set_solid_background(uint8_t r, uint8_t g, uint8_t b) {
         {
@@ -455,6 +346,9 @@ struct GameClass : Application {
     };
 
     static LevelData& level_data_of(PlacedLevel& placed) { return *dynamic_cast<LevelData*>(placed.usrdata.get()); }
+
+    const map<uint, string> kDefaultTileGroups = {
+        {0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}, {6, "Solid"}, {7, "Solid"}};
 
     PlacedLevel* load_next_level(const ldtk::Level& current_ldtk_level) {
         const auto& world = world_handler.getworld((size_t)0);
@@ -574,22 +468,6 @@ struct GameClass : Application {
         renderer->camera.screenshake += 1;
     }
 
-    void check_finish() {
-        auto& placed_level = world_handler.placed_levels[0];
-        auto& level_data = level_data_of(placed_level);
-
-        EntityList& entities = get<EntityList>();
-        for (auto& [entity_id, entity_ptr] : entities) {
-            if (!entity_ptr) continue;
-            if (!entity_triggers_finish(*entity_ptr, level_data)) continue;
-
-            do_level_switch(placed_level.level, level_data);
-            break;  // placed_level / level_data are potentially dangling after this -- don't touch them again
-        }
-    }
-    const map<uint, string> kDefaultTileGroups = {
-        {0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}, {6, "Solid"}, {7, "Solid"}};
-
     void populate_level(const Game::PlacedLevel& placed_level, LevelData& level_data) {
         EntityList& entities = get<EntityList>();
         const auto c = placed_level.level.bg_color;
@@ -682,8 +560,8 @@ struct GameClass : Application {
                 return;
             }
 
-            //if (name == "Essence")
-            //    for (int i = 0; i < 50; i++) entities.spawn_entity(name, &entity);
+            // if (name == "Essence")
+            //     for (int i = 0; i < 50; i++) entities.spawn_entity(name, &entity);
             entities.spawn_entity(name, &entity);
         };
 
@@ -705,6 +583,7 @@ struct GameClass : Application {
 
         return placed;
     }
+
     void init() override {
         print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
 
@@ -747,22 +626,26 @@ struct GameClass : Application {
 
         // renderer->compile_used_shaders();
 
-        players.push_back(entities.spawn_entity("player"));
-        populate_level(world_handler.placed_levels[0], level_data);
-        if (level_data.player_starts.empty()) {
-            level_data.player_starts.push_back({0, 100});
-        }
-        entities[players[0]].data.pos = level_data.player_starts[0];
+        [&](size_t i) {
+            Entity& player = entities[i];
+            players.push_back(i);
+            entities.main_character = i;
+
+            populate_level(world_handler.placed_levels[0], level_data);
+
+            if (level_data.player_starts.empty()) level_data.player_starts.push_back({0, 100});
+
+            player.data.pos = level_data.player_starts[0];
+            player.controller = make_unique<KeyboardEntityController>();
 #ifdef what_is_going_on
-        for (int i = 0; i < what_is_going_on; i++) {
-            [&](Entity& e) {
-                e.data.pos = entities[players[0]].data.pos;
-                e.controller = make_unique<RandomController>();
-            }(entities[entities.spawn_entity("player")]);
-        }
+            for (int i = 0; i < what_is_going_on; i++) {
+                [&](Entity& e) {
+                    e.data.pos = player.data.pos;
+                    e.controller = make_unique<RandomController>();
+                }(entities[entities.spawn_entity("player")]);
+            }
 #endif
-        entities[players[0]].controller = make_unique<KeyboardEntityController>();
-        camera_following_entity = players[0];
+        }(entities.spawn_entity("player"));
 
         size_t tris_i = 0;
         for (const auto& [entity_id, entity] : entities) {
@@ -770,48 +653,26 @@ struct GameClass : Application {
             entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
         }
     }
-    struct {
-        float up, down, left, right;
-        void do_inputs(const SDL_Keycode keycode, float speed) {
-            switch (keycode) {
-                case SDLK_UP:
-                    up = speed;
-                    break;
-                case SDLK_DOWN:
-                    down = speed;
-                    break;
-                case SDLK_LEFT:
-                    left = speed;
-                    break;
-                case SDLK_RIGHT:
-                    right = speed;
-                    break;
-            }
-        }
-    } inputs;
 
     bool slow_motion = false;
+    bool did_main_die = false;
 
     void loop() override {
         fps_counter->loop();
-        for (auto& baseclass : classes) baseclass->loop();
-
-        EntityList& entities = get<EntityList>();
 
         fps_counter->deltaTime *= (slow_motion ? dt_multiplier() : 0.9);
         const double dt = fps_counter->deltaTime;
         ASSUME(dt != NAN);
         ASSUME(dt > 0);
 
-        // for (const auto [colour, active] : puzzle_state->active_colours) {
-        // }
+        for (auto& baseclass : classes) baseclass->loop();
 
-        // debug_screen("colours", "Game colours: " << puzzle_state->active_colours);
+        EntityList& entities = get<EntityList>();
 
         const auto& level_data = level_data_of(world_handler.placed_levels[0]);
 
-        if (entities.exists(camera_following_entity)) {
-            const auto& e = entities[camera_following_entity];
+        if (entities.exists(entities.camera_following_entity)) {
+            const auto& e = entities[entities.camera_following_entity];
 
             renderer->camera.follow_point(e.data.hitbox_center());
 
@@ -869,9 +730,7 @@ struct GameClass : Application {
         slow_motion = false;
 
         while (SDL_PollEvent(&event)) {
-#ifdef DEBUG_SCREEN
             ImGui_ImplSDL3_ProcessEvent(&event);
-#endif
             switch (event.type) {
                 case SDL_EVENT_QUIT:
                     this->running = false;
@@ -879,26 +738,25 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     switch (event.key.key) {
-                        //case SDLK_ESCAPE:
-                        //    running = false;
-                        //    break;
+                        // case SDLK_ESCAPE:
+                        //     running = false;
+                        //     break;
                         case SDLK_R:
-                            entities[players[0]].data.pos = level_data.player_starts[0];
+                            entities[entities.main_character].data.pos = level_data.player_starts[0];
                             break;
                         case SDLK_X:
-                            entities[players[0]].data.vel *= 10;
+                            entities[entities.main_character].data.vel *= 10;
                             break;
                         case SDLK_F:
                             slow_motion = true;
                             break;
                         case SDLK_V:
-                            debug_screen("test1", "Yes Working level: " << &level0 << "\nYes working handler: " << &world_handler);
                             world_handler.setTile(level0, {(uint)ix, (uint)iy}, 1);
                             world_handler.renderDirtyLevels(*leveltris);
                             break;
                         case SDLK_M: {
                             auto worldmousepos = renderer->get_world_mouse_pos();
-                            for (auto i : players) entities[i].data.pos = worldmousepos;
+                            entities[entities.main_character].data.pos = worldmousepos;
                         } break;
                         case SDLK_N: {
                             auto worldmousepos = renderer->get_world_mouse_pos();
@@ -911,7 +769,7 @@ struct GameClass : Application {
                         case SDLK_B: {
                             auto worldmousepos = renderer->get_world_mouse_pos();
                             for (auto& [i, e] : entities) {
-                                if (std::find(players.begin(), players.end(), i) != players.end()) continue;
+                                if (i == entities.main_character) continue;
                                 if (e->name() != "Essence") continue;
                                 if (e->parent) e->parent->disown(e.get());
                                 e->data.pos = worldmousepos;
@@ -926,11 +784,9 @@ struct GameClass : Application {
                             }
                         }
                     }
-                    inputs.do_inputs(event.key.key, 16.0f);
                     break;
 
                 case SDL_EVENT_KEY_UP:
-                    inputs.do_inputs(event.key.key, 0.0f);
                     break;
             }
             for (auto& [i, entity] : entities) {
@@ -938,46 +794,47 @@ struct GameClass : Application {
             }
         }
 
-        {
-            auto& level0 = world_handler.placed_levels[0].level;
-            auto& tm = world_handler.all_level_tilemaps[&level0];
-
-            const auto playerpos = entities[players[0]].data.hitbox_center();
-            const int ix = (int)std::floor((playerpos.x - tm.offset.x) / tm.scale);
-            const int iy = (int)std::floor(-(playerpos.y + tm.offset.y - 1) / tm.scale);
-            debug_screen("tile_under_player",
-                "Tile under player: " << ix << ", " << iy << "\ncurrent value: "
-                                      << (ix >= 0 && iy >= 0 && (uint)ix < tm.size.x && (uint)iy < tm.size.y ? tm.tilemap[ix][iy] : -123));
-        }
-
         world_handler.renderDirtyLevels(*leveltris);
 
-        for (auto& [i, e] : entities) {
-            if (auto* controller = dynamic_cast<KeyboardEntityController*>(e->controller.get())) {
+        float best_cam = 0.f;
+        bool should_clean_entities = false;
+        auto& placed_level = world_handler.placed_levels[0];
+
+        for (auto& [entity_id, entity] : entities) {
+            // Update keyboard controls
+            if (auto* controller = dynamic_cast<KeyboardEntityController*>(entity->controller.get())) {
                 int size;
                 const bool* data = SDL_GetKeyboardState(&size);
                 controller->keyboard = std::span<const bool>(data, (size_t)size);
             }
-        }
+            entity->controller->update_controls(*entity, *this);
 
-        bool should_clean_entities = false;
-        for (auto& [entity_id, entity] : entities) {
+            {  // Handle camera
+                float cur_cam = entity->camera_need();
+                if (cur_cam > 0 && cur_cam > best_cam) {
+                    entities.camera_following_entity = entity_id;
+                    best_cam = cur_cam;
+                }
+            }
+
+            // Tick entity
+            if (entity->controller->should_slow_motion()) slow_motion = true;
+            entity->tick_all(*this);
+
+            // Render
+            if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);
+            entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
+
+            // Handle despawning
             if (!entity || entity->wants_to_despawn) {
                 should_clean_entities = true;
                 entitytrisindex.remove_entity(entity_id);
                 continue;
             }
-            entity->controller->update_controls(*entity, *this);
-            if (entity->controller->should_slow_motion()) slow_motion = true;
-            entity->tick_all(*this);
-            if (entity->wants_to_despawn) should_clean_entities = true;
 
-            if (!entitytrisindex.contains(entity_id)) entitytrisindex.add_entity(entity_id);
-            entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
+            if (entity_triggers_finish(*entity, level_data)) do_level_switch(placed_level.level, level_data);
         }
         if (should_clean_entities) entities.clean_entities();
-
-        check_finish();
 
         check_running(renderer.get());
         check_running(fps_counter.get());

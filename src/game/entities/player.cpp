@@ -12,7 +12,10 @@ namespace Game {
         Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
         void spawn(Base::Application&, const ldtk::Entity* e = nullptr) override;
-        std::string get_default_attributes() const override { return Entity::get_default_attributes() + ",pick_up_triangles,triggers,canfinish,pushed1,"; }
+        std::string get_default_attributes() const override {
+            return Entity::get_default_attributes() + ",pick_up_triangles,triggers,canfinish,pushed1,";
+        }
+        float camera_need() const override { return 10.f; }
     };
 }  // namespace Game
 
@@ -156,7 +159,7 @@ namespace PlayerMovements {
                 .speed = 20,
             };
             constexpr static Player::MaterialProps floor_props_stationary = {
-                .drag = {8, 0.1},
+                .drag = {10, 0.1},
                 .speed = 0,
             };
             return e->controls.left || e->controls.right ? floor_props_moving : floor_props_stationary;

@@ -27,12 +27,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#ifdef DEBUG_SCREEN
 #    include <imgui.h>
 #    include <imgui_impl_sdl3.h>
 #    include <imgui_impl_wgpu.h>
 #    include <utils.hpp>
-#endif
 
 // <AI>
 namespace wgpu_util {
@@ -357,7 +355,8 @@ void GameRenderer::init() {
     WGPURequestAdapterOptions ao{};
     ao.compatibleSurface = surface;
     adapter = requestAdapterSync(ao);
-    spamlog("Requested adapter");
+    if (!adapter) uh_oh("Failed to get WGPU adapter — WebGPU unavailable or requestAdapter failed");
+    spamlog("Succesfully requested adapter");
 
     WGPUAdapterInfo info{};
     wgpuAdapterGetInfo(adapter, &info);
@@ -381,7 +380,6 @@ void GameRenderer::init() {
     ensureParamsScratch(kParamAlign);
     resizeSceneTargets();
 
-#ifdef DEBUG_SCREEN
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui_ImplSDL3_InitForOther(window);
@@ -390,7 +388,6 @@ void GameRenderer::init() {
     imguiInfo.NumFramesInFlight = 3;
     imguiInfo.RenderTargetFormat = surfaceFormat;
     ImGui_ImplWGPU_Init(&imguiInfo);
-#endif
 
     // texture_id=0 is a 1x1 white dummy so coloured/untextured materials always have something
     // valid bound at group(1), keeping every pipeline layout identical.
@@ -477,11 +474,9 @@ void GameRenderer::resizeSceneTargets() {
 }
 
 void GameRenderer::quit() {
-#ifdef DEBUG_SCREEN
     ImGui_ImplWGPU_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
-#endif
 
     for (auto& t : textures) {
         if (t.bindGroup) wgpuBindGroupRelease(t.bindGroup);
@@ -935,13 +930,11 @@ void GameRenderer::loop() {
         }
     }
 
-#ifdef DEBUG_SCREEN
     ImGui_ImplWGPU_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
-    render_debug_screen();
+    //render_debug_screen();
     ImGui::Render();
-#endif
 
     const auto fpscounter = 
      dynamic_cast<Base::Application*>(parent)->get<Base::FpsCounter>();
@@ -1150,9 +1143,8 @@ void GameRenderer::loop() {
         wgpuRenderPassEncoderSetPipeline(pass, blitPipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, blitBG[src], 0, nullptr);
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
-#ifdef DEBUG_SCREEN
+
         ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), pass);
-#endif
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }

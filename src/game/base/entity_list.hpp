@@ -9,6 +9,10 @@ namespace Game {
         void quit() override {}
 
         using index_t = size_t;
+
+        index_t camera_following_entity = EntityList::null_index;
+        index_t main_character = EntityList::null_index;
+
         constexpr static index_t null_index = std::numeric_limits<index_t>::max();
         [[nodiscard]] index_t get_id_from(const Entity* other) const {
             for (const auto& [i, entity] : entities) {
@@ -25,6 +29,13 @@ namespace Game {
             if (expected == null_index) expected++;
             return expected;
         }
+
+        index_t get_entity_index(const Entity* e) const {
+            for (const auto& [i, entity] : entities)
+                if (entity.get() == e) return i;
+            return null_index;
+        }
+
         index_t spawn_entity(std::string_view entity_name, const ldtk::Entity* e = nullptr) {
             if (!Entity::contains(std::string(entity_name))) return null_index;
             const auto id = get_empty_index();
@@ -42,7 +53,11 @@ namespace Game {
                 if (!entity || entity->wants_to_despawn) deleted_entities.push_back(i);
                 if (entity) entity->despawn();
             }
-            for (const auto i : deleted_entities) entities.erase(i);
+            for (const auto i : deleted_entities) {
+                if (camera_following_entity == i) camera_following_entity = null_index;
+                if (main_character == i) main_character = null_index;
+                entities.erase(i);
+            }
         }
         inline void clean_entities() { delete_entity(null_index, true); }
 

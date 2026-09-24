@@ -19,14 +19,13 @@ std::vector<std::string> attributes_from_string(const std::string& raw) {
     auto push_trimmed = [&](std::string s) {
         // trim left
         size_t start = s.find_first_not_of(" \t\n\r");
-        if (start == std::string::npos) return; // all whitespace → ignore
+        if (start == std::string::npos) return;  // all whitespace → ignore
 
         // trim right
         size_t end = s.find_last_not_of(" \t\n\r");
         s = s.substr(start, end - start + 1);
 
-        if (!s.empty())
-            out.push_back(std::move(s));
+        if (!s.empty()) out.push_back(std::move(s));
     };
 
     for (char c : raw) {
@@ -131,6 +130,8 @@ void Game::Entity::tick_position(Base::Application& app) {
 
     const auto sweep_axis = [&](bool axis, double edge_before, double edge_after, double range_lo, double range_hi,
                                 double& hit_boundary) -> bool {
+        if (!collisions) return false;
+
         const bool is_y = axis == Y_AXIS;
         const bool is_x = axis == X_AXIS;
 

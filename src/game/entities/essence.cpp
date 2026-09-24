@@ -408,7 +408,6 @@ struct Essence : Entity {
     }
 } _REGISTER_FOR(new Essence(), "Essence", Entity);
 
-/// My triangle is lgbt and has multiple phases
 struct GaeEssence : Essence {
     float get_side_length(Application& app) override { return 3.f; }
     static uint32_t pack_abgr(float a, float b, float g, float r) {
@@ -452,7 +451,21 @@ struct GaeEssence : Essence {
         return pack_abgr(a, b, g, r);
     }
 
+    Entity* parent_to_find = nullptr;
+    bool should_find = false;
+    float time_spent_waiting = 0;
+
     void tick(Application& app) override {
+        if (!parent_to_find) should_find = false;
+        collisions = !should_find;
+        if (should_find && !parent && parent_to_find) {
+            auto target = parent_to_find->data.hitbox_center();
+            // weird bug, this is bandaid fix
+            target.y += 32;
+            data.vel += (target - data.hitbox_center()) * app.get<FpsCounter>().deltaTime * 30.0;
+            data.vel *= 1 - (5 * app.get<FpsCounter>().deltaTime);
+        }
+
         Entity::tick(app);
 
         sanitize(data.pos.x);
@@ -476,7 +489,10 @@ struct GaeEssence : Essence {
         if (has_been_taken) app.get<Renderer>().camera.screenshake = 0.1;
 
         if (!parent) {
+            time_spent_waiting += app.get<FpsCounter>().deltaTime;
             is_owned.update(app, false);
+            auto coll = data.colliding_with;
+            if (time_spent_waiting > 3) should_find = true;
 
             data.vel += get_gravity() * app.get<FpsCounter>().deltaTime * gravity_multiplier();
 
@@ -484,19 +500,28 @@ struct GaeEssence : Essence {
             sanitize(data.vel.y);
 
             return;
-        }
+        } else time_spent_waiting = 0;
 
         has_been_taken = true;
 
         Entity& p = *parent;
 
         size_t own_index = 0;
-        size_t tri_count = 1;
+        size_t tri_count = 0;
         bool found_self = true;
 
         for (Entity* rawsibling : p.children) {
             if (!rawsibling) continue;
-            if (rawsibling == this) continue;
+
+            if (dynamic_cast<GaeEssence*>(rawsibling)) {
+                if (this == rawsibling) {
+                    own_index = tri_count;
+                    found_self = true;
+                }
+                tri_count++;
+                continue;
+            }
+
             Essence* sibling = dynamic_cast<Essence*>(rawsibling);
             if (!sibling) continue;
 
@@ -597,11 +622,11 @@ struct GaeEssence : Essence {
             sanitize(p.data.vel.y);
 
             p.disown(this, true);
-
-            // This disown is intentional, not a silent reparent.
-            last_seen_parent = nullptr;
+            should_find = false;
         }
 
         is_owned.update(app, !(!parent));
+
+        parent_to_find = &p;
     }
 } _REGISTER_FOR(new GaeEssence(), "RainbowEssence", Entity);

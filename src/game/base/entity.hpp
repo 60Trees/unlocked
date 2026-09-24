@@ -136,6 +136,10 @@ namespace Game {
         using vec2_t = glm::vec<2, double>;
         Hitbox data;
 
+        bool collisions = true;
+
+        virtual float camera_need() const { return -1; }
+
         std::shared_ptr<EntityMovement> movement;
         std::vector<std::shared_ptr<EntityAbility>> current_abilities;
 
