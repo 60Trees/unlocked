@@ -893,35 +893,35 @@ struct GameClass : Application {
                             //     world_handler.setTile(level0, {(uint)ix, (uint)iy}, 1);
                             //     world_handler.renderDirtyLevels(*leveltris);
                             //     break;
-                        case SDLK_M: {
-                            auto worldmousepos = renderer->get_world_mouse_pos();
-                            entities[entities.main_character].data.pos = worldmousepos;
-                        } break;
-                            // case SDLK_N: {
-                            //    auto worldmousepos = renderer->get_world_mouse_pos();
-                            //    for (auto& [i, e] : entities) {
-                            //        if (i == entities.main_character) continue;
-                            //        if (e->name() != "player") continue;
-                            //        e->data.pos = worldmousepos;
-                            //    }
-                            //} break;
-                            // case SDLK_B: {
-                            //    auto worldmousepos = renderer->get_world_mouse_pos();
-                            //    for (auto& [i, e] : entities) {
-                            //        if (i == entities.main_character) continue;
-                            //        if (e->name() != "Essence") continue;
-                            //        if (e->parent) e->parent->disown(e.get());
-                            //        e->data.pos = worldmousepos;
-                            //        e->data.vel = {Random::real(-100, 100, 3), Random::real(-100, 100, 3)};
-                            //    }
-                            //} break;
-                            // case SDLK_J: {
-                            //    auto worldmousepos = renderer->get_world_mouse_pos();
-                            //    for (auto& [i, e] : entities) {
-                            //        if (e->name() != "Booster") continue;
-                            //        e->data.pos = worldmousepos;
-                            //    }
-                            //}
+                            // case SDLK_M: {
+                            //     auto worldmousepos = renderer->get_world_mouse_pos();
+                            //     entities[entities.main_character].data.pos = worldmousepos;
+                            // } break;
+                            //  case SDLK_N: {
+                            //     auto worldmousepos = renderer->get_world_mouse_pos();
+                            //     for (auto& [i, e] : entities) {
+                            //         if (i == entities.main_character) continue;
+                            //         if (e->name() != "player") continue;
+                            //         e->data.pos = worldmousepos;
+                            //     }
+                            // } break;
+                            //  case SDLK_B: {
+                            //     auto worldmousepos = renderer->get_world_mouse_pos();
+                            //     for (auto& [i, e] : entities) {
+                            //         if (i == entities.main_character) continue;
+                            //         if (e->name() != "Essence") continue;
+                            //         if (e->parent) e->parent->disown(e.get());
+                            //         e->data.pos = worldmousepos;
+                            //         e->data.vel = {Random::real(-100, 100, 3), Random::real(-100, 100, 3)};
+                            //     }
+                            // } break;
+                            //  case SDLK_J: {
+                            //     auto worldmousepos = renderer->get_world_mouse_pos();
+                            //     for (auto& [i, e] : entities) {
+                            //         if (e->name() != "Booster") continue;
+                            //         e->data.pos = worldmousepos;
+                            //     }
+                            // }
                     }
                     break;
 
