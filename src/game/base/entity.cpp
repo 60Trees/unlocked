@@ -248,14 +248,40 @@ void Game::Entity::tick_position(Base::Application& app) {
     data.colliding_with.up.update(app, colliding_up);
     data.colliding_with.down.update(app, colliding_down);
 
-    // if (collided) debug_screen(this, "Entity " << this << ": Speed: " << speed);
+    const auto overlaps_tile_group = [&](const std::string& group) -> bool {
+        for (const auto& level : handler.placed_levels) {
+            const auto& cm = handler.all_level_tilemaps[&level.level];
 
-    // constexpr double threshold = 80;
-    // constexpr double max = 300;
-    // if (speed > max) speed = max;
-    // if (collided && speed > threshold) {
-    //     dynamic_cast<Renderer*>(GetRenderer(false))->camera.screenshake += speed - threshold;
-    // }
+            const auto to_local = [&](double point, bool target_axis) {
+                if (target_axis == X_AXIS)
+                    return (point - cm.offset.x) / cm.scale;
+                else
+                    return -(point + cm.offset.y) / cm.scale;
+            };
+
+            const double lx0 = to_local(data.left(), X_AXIS);
+            const double lx1 = to_local(data.right(), X_AXIS);
+            const double ly0 = to_local(data.top(), Y_AXIS);
+            const double ly1 = to_local(data.bottom(), Y_AXIS);
+
+            const int ix_lo = (int)mth::floor(mth::min(lx0, lx1));
+            const int ix_hi = (int)mth::ceil(mth::max(lx0, lx1)) - 1;
+            const int iy_lo = (int)mth::floor(mth::min(ly0, ly1));
+            const int iy_hi = (int)mth::ceil(mth::max(ly0, ly1)) - 1;
+
+            for (int ix = ix_lo; ix <= ix_hi; ix++) {
+                for (int iy = iy_lo; iy <= iy_hi; iy++) {
+                    if (ix < 0 || iy < 0 || ix >= cm.size.x || iy >= cm.size.y) continue;
+                    const auto key = (uint)cm.tilemap[ix][iy];
+                    if (!level.tile_groups.contains(key)) continue;
+                    if (level.tile_groups.at(key) == group) return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    if (overlaps_tile_group("Death")) on_death();
 }
 
 void Game::ControlData::update(const Base::Application& app, bool new_pressed) {

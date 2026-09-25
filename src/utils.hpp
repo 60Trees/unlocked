@@ -208,7 +208,7 @@ void welcome_message();
 GETTER_DEFINITION_NO_DEFAULT_ARG(Base::BaseClass, GetApplication);
 void handle_loop(std::function<bool()> loop);
 
-#if true
+#if false
 #    define debug_screen(entry, string) \
         do {                            \
         } while (0)

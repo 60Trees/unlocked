@@ -305,7 +305,7 @@ void GameRenderer::applyCameraBound(double dt) {
     // how many game pixels you see in either direction
     vec2 pixelsight{(float)screenwidth / 2 / rawzoom, (float)screenheight / 2 / rawzoom};
 
-    debug_screen("zzbz", "Pixel sight: " << pixelsight.x << "," << pixelsight.y);
+    // debug_screen("zzbz", "Pixel sight: " << pixelsight.x << "," << pixelsight.y);
 
     struct {
         double left, right, bottom, top;
@@ -320,7 +320,7 @@ void GameRenderer::applyCameraBound(double dt) {
     if (camera.target_y > cambound.top) camera.target_y = cambound.top;
     if (camera.target_y < cambound.bottom) camera.target_y = cambound.bottom;
 
-    debug_screen("zze", "Camera pos (now): " << camera.x << "," << camera.y);
+    // debug_screen("zze", "Camera pos (now): " << camera.x << "," << camera.y);
 }
 // <AI>
 
@@ -331,7 +331,7 @@ void GameRenderer::init() {
 
     spamlog("Initialized");
 
-    window = SDL_CreateWindow("Run", 1280, 720, SDL_WINDOW_RESIZABLE);
+    window = SDL_CreateWindow("Unlocked", 1280, 720, SDL_WINDOW_RESIZABLE);
     spamlog("Created window");
 
     instance = wgpuCreateInstance(nullptr);
@@ -933,7 +933,7 @@ void GameRenderer::loop() {
     ImGui_ImplWGPU_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
-    //render_debug_screen();
+    render_debug_screen();
     ImGui::Render();
 
     const auto fpscounter = 

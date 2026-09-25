@@ -130,6 +130,7 @@ namespace Game {
         virtual void digest_event(SDL_Event& e) {}
         virtual void update_controls(Entity& own, const Base::Application&) {}
         virtual bool should_slow_motion() { return false; }
+        virtual std::unique_ptr<EntityController> clone() { return std::make_unique<EntityController>(); }
     };
 
     struct Entity {
@@ -137,13 +138,52 @@ namespace Game {
         Hitbox data;
 
         bool collisions = true;
+        bool wants_to_despawn = false;
+        Duration pause_time = 0.0f;
+        std::vector<std::string> attributes{};
 
-        virtual float camera_need() const { return -1; }
+        struct Controls {
+            ControlData left, right;
+            ControlData boost;
+            ControlData jump;
+            // NAN = not focused, 0-360 is angle
+            float focusDegrees = NAN;
+        } controls;
+        std::unique_ptr<EntityController> controller = std::make_unique<EntityController>();
+
+        std::vector<Entity*> children{};
+        Entity* parent = nullptr;
 
         std::shared_ptr<EntityMovement> movement;
         std::vector<std::shared_ptr<EntityAbility>> current_abilities;
 
-        std::vector<std::string> attributes{};
+        Entity() = default;
+        Entity(const Entity& og, std::function<void(Entity* register_entity, const Entity* their_parent)> regentity)
+            : data(og.data),
+              collisions(og.collisions),
+              wants_to_despawn(og.wants_to_despawn),
+              pause_time(og.pause_time),
+              controls(og.controls),
+              attributes(og.attributes),
+              controller(og.controller ? og.controller->clone() : nullptr),
+              dead(og.dead),
+              movement(og.movement ? std::shared_ptr<EntityMovement>(og.movement->clone()) : nullptr) {
+            children.reserve(og.children.size());
+            for (const Entity* og_child : og.children) {
+                auto new_child = og_child->clone(regentity);
+                regentity(new_child, this);
+                new_child->parent = this;
+                children.push_back(new_child);
+            }
+
+            current_abilities.reserve(og.current_abilities.size());
+            for (const auto& ability : og.current_abilities) {
+                current_abilities.push_back(std::shared_ptr<EntityAbility>(ability->clone()));
+            }
+        }
+
+        virtual float camera_need() const { return -1; }
+
         virtual std::string get_default_attributes() const { return {}; };
         virtual bool has_attribute(std::string_view to_find) const {
             return std::find(attributes.begin(), attributes.end(), to_find) != attributes.end();
@@ -179,16 +219,6 @@ namespace Game {
             return dynamic_cast<T*>(mptr);
         }
 
-        struct Controls {
-            ControlData left, right;
-            ControlData boost;
-            ControlData jump;
-            // NAN = not focused, 0-360 is angle
-            float focusDegrees = NAN;
-        } controls;
-
-        std::unique_ptr<EntityController> controller = std::make_unique<EntityController>();
-
         virtual vec2_t get_gravity();
 
         struct MaterialProps {
@@ -196,9 +226,6 @@ namespace Game {
             vec2_t drag;
             double speed;
         };
-
-        std::vector<Entity*> children{};
-        Entity* parent = nullptr;
 
         inline void adopt(Entity* new_child) {
             // Fully transfer ownership -- an entity must never be a "child" of more than one parent,
@@ -226,6 +253,8 @@ namespace Game {
         virtual void tick(Base::Application& app) {}
         virtual void tick_position(Base::Application& app);
         virtual void despawn() {}
+        bool dead = false;
+        virtual void on_death() { dead = true; }
 
         virtual Base::Renderer::Material get_material(Base::Application& app) {
             auto& r = app.get<Base::Renderer>();
@@ -243,8 +272,6 @@ namespace Game {
         /// Ran directly before it will be disowned, so `parent` is still valid
         virtual void when_disowned() {}
 
-        Duration pause_time = 0.0f;
-
         virtual bool colliding_with(const Entity* other) const;
 
         /// This function is only run in the base Entity::spawn();
@@ -260,8 +287,6 @@ namespace Game {
         virtual ~Entity() {
             if (parent) parent->disown(this, true);
         }
-
-        bool wants_to_despawn = false;
 
         virtual bool does_render() const { return movement.get(); }
         virtual AnimationFrame get_anim_frame(Base::Application& app) const {
@@ -279,6 +304,8 @@ namespace Game {
             os << obj.dump_as_json();
             return os;
         }
+
+        virtual Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const = 0;
 
         _REGISTERABLE(Entity);
     };

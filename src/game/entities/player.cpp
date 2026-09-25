@@ -9,12 +9,22 @@
 
 namespace Game {
     struct Player : Entity {
+        Player(const Player& oth, std::function<void(Entity*, const Entity*)> regentity) : Entity(oth, regentity) {}
+        Player() = default;
+
+        Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const override { return new Player(*this, regentity); }
         Hitbox get_defaults() const override;
         std::string name() const override { return "player"; }
         void spawn(Base::Application&, const ldtk::Entity* e = nullptr) override;
         std::string get_default_attributes() const override {
             return Entity::get_default_attributes() + ",pick_up_triangles,triggers,canfinish,pushed1,";
         }
+        bool does_render() const override { return (!dead) && movement.get(); }
+
+        void tick_all(Base::Application& app) override {
+            if (!dead) Entity::tick_all(app);
+        }
+
         float camera_need() const override { return 10.f; }
     };
 }  // namespace Game
@@ -56,10 +66,15 @@ extern "C" double gravity_multiplier();
 
 namespace PlayerMovements {
     struct Walk : EntityMovement {
-        virtual bool can_be_considered_walking(const Entity*) { return true; }
-
         Duration time_spent_walking = 0.0f;
+        bool is_walking = false;
         double anim_offset = 0.0;
+        Walk(const Walk& oth)
+            : EntityMovement(oth), time_spent_walking(oth.time_spent_walking), is_walking(oth.is_walking), anim_offset(oth.anim_offset) {}
+        Walk() = default;
+
+        EntityMovement* clone() override { return new Walk(*this); }
+        virtual bool can_be_considered_walking(const Entity*) { return true; }
 
         virtual bool is_changing_direction(const Entity* e) {
             if (e->controls.right && e->data.vel.x < 0) return true;
@@ -71,8 +86,6 @@ namespace PlayerMovements {
 
         virtual float speed_multiplier(const Entity*) { return 1.0f; }
         virtual glm::vec<2, double> drag_multiplier(const Entity*) { return {1.0f, 1.0f}; }
-
-        bool is_walking = false;
 
         virtual v2i get_running_frame(const Entity* e) {
             constexpr uint stride_length = 8;
@@ -227,6 +240,17 @@ namespace PlayerMovements {
     } _register_movement(Walk);
 
     struct QuickTurn : Walk {
+        bool is_slow;
+        constexpr static Duration default_time_left = 0.3;
+        Duration time_left = default_time_left;
+        bool has_enacted_boost = false;
+
+        QuickTurn(const QuickTurn& oth)
+            : Walk(oth), is_slow(oth.is_slow), time_left(oth.time_left), has_enacted_boost(oth.has_enacted_boost) {}
+        QuickTurn() = default;
+
+        EntityMovement* clone() override { return new QuickTurn(*this); }
+
         bool can_be_considered_walking(const Entity* e) override { return true; }
 
         AnimationFrame anim_frame(const Entity* e) override {
@@ -240,13 +264,7 @@ namespace PlayerMovements {
             return retval;
         }
 
-        bool is_slow;
-
         float speed_multiplier(const Entity* e) override { return is_changing_direction(e) ? 0.5 : 2.0f; }
-
-        constexpr static Duration default_time_left = 0.3;
-        Duration time_left = default_time_left;
-        bool has_enacted_boost = false;
 
         void tick(Entity* e, double deltaTime) override {
             Walk::tick(e, deltaTime);
@@ -375,6 +393,10 @@ namespace PlayerMovements {
 
 namespace PlayerAbilities {
     struct Jump : EntityAbility {
+        Jump(const Jump& oth) : EntityAbility(oth) {}
+        Jump() = default;
+        EntityAbility* clone() override { return new Jump(*this); }
+
         bool can_trigger(const Entity* e, double) override {
             // if already jumping then ignore
             if (e->movement_based_off<PlayerMovements::Jumping>()) return false;
@@ -397,6 +419,10 @@ namespace PlayerAbilities {
     } _register_ability(Jump);
 
     struct QuickTurn : EntityAbility {
+        QuickTurn(const QuickTurn& oth) : EntityAbility(oth) {}
+        QuickTurn() = default;
+        EntityAbility* clone() override { return new QuickTurn(*this); }
+
         bool can_trigger(const Entity* e, double deltaTime) override {
             if (!e->movement_is_exactly<PlayerMovements::Walk>()) return false;
             PlayerMovements::Walk* const walking = e->get_movement<PlayerMovements::Walk>();

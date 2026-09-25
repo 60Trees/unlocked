@@ -14,6 +14,11 @@ using namespace Base;
 using namespace std;
 
 struct Booster : Entity {
+    Booster(const Booster& oth, std::function<void(Entity*, const Entity*)> regentity)
+        : Entity(oth, regentity), boost_dir(oth.boost_dir), invisible(oth.invisible) {}
+    Booster() = default;
+
+    Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const override { return new Booster(*this, regentity); }
     std::string name() const override { return "Booster"; }
     Hitbox get_defaults() const override { return {.size = {12, 12}}; }
     glm::vec<2, double> boost_dir;

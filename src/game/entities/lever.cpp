@@ -15,6 +15,11 @@ using namespace Base;
 using namespace std;
 
 struct Lever : PuzzleObject {
+    Lever(const Lever& oth, std::function<void(Entity*, const Entity*)> regentity)
+        : PuzzleObject(oth, regentity), active_direction(oth.active_direction), current_direction(oth.current_direction) {}
+    Lever() = default;
+
+    Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const override { return new Lever(*this, regentity); }
     Direction active_direction;
     Direction current_direction;
     optional<bool> get_state() const override { return active_direction == current_direction; }

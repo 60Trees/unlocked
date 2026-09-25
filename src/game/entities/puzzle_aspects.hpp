@@ -127,6 +127,10 @@ namespace Game {
             retval.params = std::as_bytes(std::span(&tint_param, 1));
             return retval;
         }
+
+        PuzzleObject(const PuzzleObject& oth, std::function<void(Entity*, const Entity*)> regentity)
+            : Entity(oth, regentity), visible(oth.visible), colour(oth.colour), tint_param(oth.tint_param) {}
+        PuzzleObject() = default;
     };
 
 }  // namespace Game

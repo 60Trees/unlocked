@@ -4,7 +4,6 @@
 #include <exception>
 #include <iostream>
 #include <print>
-#include <stdexcept>
 
 #ifdef __EMSCRIPTEN__
 #    include <emscripten.h>

@@ -90,6 +90,7 @@ void render_debug_screen() {
         ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
         ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("##debug_screen", nullptr, flags);
+    ImGui::SetWindowFontScale(2.f);
 
     float column_x = pad;
     float cursor_y = pad;

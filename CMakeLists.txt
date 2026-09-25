@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 # <AI> cmake is annoying + tedious
 
-set(PROJECT_NAME_VAR "Run")
+set(PROJECT_NAME_VAR "Unlocked")
 message("Configuring ${PROJECT_NAME_VAR}...")
 
 project(${PROJECT_NAME_VAR}

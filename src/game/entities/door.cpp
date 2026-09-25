@@ -16,6 +16,16 @@ using namespace Base;
 using namespace std;
 
 struct Door : PuzzleObject {
+    Door(const Door& oth, std::function<void(Entity*, const Entity*)> regentity)
+        : PuzzleObject(oth, regentity),
+          inverted(oth.inverted),
+          grid_position(oth.grid_position),
+          own_layer(oth.own_layer),
+          is_open(oth.is_open) {}
+    Door() = default;
+
+    Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const override { return new Door(*this, regentity); }
+
     optional<bool> get_state() const override { return nullopt; }
     std::string name() const override { return "Door"; }
 

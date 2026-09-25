@@ -18,19 +18,12 @@ namespace Game {
         Direction direction;
         std::optional<Direction> forced_direction = std::nullopt;
 
+        virtual EntityMovement* clone() = 0;
+
+        EntityMovement(const EntityMovement& oth) : direction(oth.direction), forced_direction(oth.forced_direction) {}
+        EntityMovement() = default;
+
         _REGISTERABLE(EntityMovement);
-    };
-
-    struct FunctionEntityMovement : EntityMovement {
-        std::function<AnimationFrame(const Entity*)> _render = nullptr;
-        std::function<void(Entity*, double)> _tick = nullptr;
-
-        void tick(Entity* e, double deltaTime) override {
-            if (_tick) _tick(e, deltaTime);
-        }
-        AnimationFrame anim_frame(const Entity* e) override {
-            return _render ? _render(e) : AnimationFrame{};
-        }
     };
 
     struct EntityAbility {
@@ -40,6 +33,11 @@ namespace Game {
         virtual void trigger(Entity* e, double deltaTime) = 0;
 
         virtual bool does_override(EntityAbility* other) { return false; }
+
+        virtual EntityAbility* clone() = 0;
+
+        EntityAbility(const EntityAbility& oth) {}
+        EntityAbility() = default;
 
         _REGISTERABLE(EntityAbility);
     };
@@ -55,5 +53,6 @@ namespace Game {
             else
                 when_deactive(e, deltaTime);
         }
+        ConditionalEntityAbility(const ConditionalEntityAbility& oth) : EntityAbility(oth) {}
     };
 }  // namespace Game

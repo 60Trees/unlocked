@@ -8,11 +8,9 @@
 #include <base/app.hpp>
 #include <base/renderer.hpp>
 #include <cmath>
-#include <random>
 #include <game/base/entity.hpp>
 #include <game/base/entity_list.hpp>
 
-#include <limits>
 #include <map>
 #include <memory>
 #include <print>
@@ -25,11 +23,7 @@
 #include <utility>
 #include "LDtkLoader/DataTypes.hpp"
 #include "SDL3/SDL_keycode.h"
-#include "SDL3/SDL_mouse.h"
-#include "SDL3/SDL_stdinc.h"
 #include "game/base/world_handler.hpp"
-#include "glm/ext/vector_float2.hpp"
-#include "glm/trigonometric.hpp"
 #include "utils.hpp"
 
 #include "game/systems/light_shafts.hpp"
@@ -66,6 +60,10 @@ struct RandomController : EntityController {
     uint tick_count = 0;
     Duration time_left = 0.0;
     enum { WAIT, MOVE_LEFT, MOVE_RIGHT, JUMP, SHOOT } Action;
+    RandomController(const RandomController& oth)
+        : EntityController(oth), seed(oth.seed), tick_count(oth.tick_count), time_left(oth.time_left) {}
+    RandomController() = default;
+    std::unique_ptr<EntityController> clone() override { return std::make_unique<RandomController>(*this); }
     virtual void update_controls(Entity& own, const Application& app) override {
         const auto deltaTime = app.get<FpsCounter>().deltaTime;
         const auto& r = app.get<Renderer>();
@@ -124,6 +122,10 @@ struct KeyboardEntityController : EntityController {
 
     KeyboardControls controls;
     span<const bool> keyboard;
+
+    KeyboardEntityController(const KeyboardEntityController& oth) : EntityController(oth), controls(oth.controls) {}
+    KeyboardEntityController() = default;
+    std::unique_ptr<EntityController> clone() override { return std::make_unique<KeyboardEntityController>(*this); }
 
     /// NAN = not being held, INFINITY = being held but opressed
     float get_aim_direction() {
@@ -185,6 +187,44 @@ struct KeyboardEntityController : EntityController {
         own.controls.jump.update(app, keyboard[controls.jump]);
     }
 };
+#include <format>
+#include <string>
+#include <cmath>
+
+static std::string format_timer(double seconds) {
+    const auto total_seconds = static_cast<long long>(seconds);
+
+    const long long days = total_seconds / 86400;
+    const long long hours = (total_seconds % 86400) / 3600;
+    const long long minutes = (total_seconds % 3600) / 60;
+    const long long secs = total_seconds % 60;
+
+    // Get fractional part.
+    double fraction = seconds - static_cast<double>(total_seconds);
+
+    // Convert to decimal digits.
+    std::string fraction_str = std::format("{:.9f}", fraction);
+
+    // Remove "0."
+    fraction_str.erase(0, 2);
+
+    // Remove trailing zeroes.
+    while (!fraction_str.empty() && fraction_str.back() == '0') fraction_str.pop_back();
+
+    std::string result = "\\red";
+
+    if (days > 0) result += std::format("{}:", days);
+
+    if (hours > 0 || days > 0) result += std::format("{:02}:", hours);
+
+    if (minutes > 0 || hours > 0 || days > 0) result += std::format("{:02}:", minutes);
+
+    result += std::format("{:02}", secs);
+
+    if (!fraction_str.empty()) result += ":\\normal" + fraction_str;
+
+    return result;
+}
 
 struct GameClass : Application {
     GameClass() { this->renderer->parent = this; }
@@ -350,32 +390,6 @@ struct GameClass : Application {
     const map<uint, string> kDefaultTileGroups = {
         {0, "Air"}, {1, "Solid"}, {2, "Solid"}, {3, "Solid"}, {5, "Solid"}, {4, "Death"}, {6, "Solid"}, {7, "Solid"}};
 
-    PlacedLevel* load_next_level(const ldtk::Level& current_ldtk_level) {
-        const auto& world = world_handler.getworld((size_t)0);
-
-        size_t current_index = 0;
-        bool found = false;
-        for (const auto& l : world.allLevels()) {
-            if (&l == &current_ldtk_level) {
-                found = true;
-                break;
-            }
-            current_index++;
-        }
-        if (!found) return nullptr;
-
-        const size_t next_index = current_index + 1;
-        if (next_index >= world.allLevels().size()) return nullptr;  // current level is the last one in the world
-
-        const ldtk::Level& next_ldtk_level = world_handler.getlevel(next_index, world);
-
-        world_handler.placed_levels.clear();
-        renderer->camera_bound = nullptr;
-        leveltris->clear();
-
-        return &spawn_level(next_ldtk_level);
-    }
-
     bool entity_triggers_finish(const Entity& e, const LevelData& level_data) {
         if (!level_data.finish || !e.has_attribute("canfinish")) return false;
         if (!hitboxes_overlap(e.data, *level_data.finish)) return false;
@@ -386,14 +400,19 @@ struct GameClass : Application {
         return true;
     }
 
-    void do_level_switch(const ldtk::Level& current_ldtk_level, const LevelData& level_data) {
+    std::vector<std::unique_ptr<Entity>> checkpoint_entities{};
+    Entity* checkpoint_entities_main_character = nullptr;
+    std::map<const Entity*, std::vector<Entity*>> checkpoint_parent_child_map{};
+    Renderer::Camera checkpoint_camera;
+    bool has_reached_checkpoint = false;
+
+    void do_level_switch(const ldtk::Level& current_ldtk_level, const LevelData& level_data, bool is_dead) {
+        if (!is_dead) has_reached_checkpoint = true;
         const std::vector<Hitbox> share_finish_bounds = level_data.share_finish;
         const auto prev_player_end = level_data.finish;
-
         EntityList& entities = get<EntityList>();
 
-        std::vector<EntityList::index_t> surviving_entity_ids;
-
+        std::vector<EntityList::index_t> to_move_entities;
         for (auto& [entity_id, entity_ptr] : entities) {
             if (!entity_ptr) continue;
 
@@ -402,76 +421,155 @@ struct GameClass : Application {
             const bool overlaps_share_finish = std::any_of(share_finish_bounds.begin(), share_finish_bounds.end(),
                 [&](const Hitbox& bound) { return hitboxes_overlap(e.data, bound); });
 
-            if (overlaps_share_finish && e.transfers_to_new_level()) {
-                surviving_entity_ids.push_back(entity_id);
-            } else {
+            if (is_dead || !overlaps_share_finish || !e.transfers_to_new_level()) {
                 e.wants_to_despawn = true;
                 entitytrisindex.remove_entity(entity_id);
+                continue;
             }
+            to_move_entities.push_back(entity_id);
         }
-
         entities.clean_entities();
 
-        PlacedLevel* next_level = load_next_level(current_ldtk_level);
+        if (is_dead) {
+            std::map<const Entity*, std::vector<Entity*>> new_parent_child_map{};
+            for (auto& checkpt_entity : checkpoint_entities) {
+                if (!checkpt_entity) continue;
+                size_t idx = entities.get_empty_index();
+                if (checkpt_entity.get() == checkpoint_entities_main_character) entities.main_character = idx;
+                entities.data[idx] = std::unique_ptr<Entity>(checkpt_entity->clone([&](Entity* child, const Entity* parent) {
+                    if (!parent) return;
+                    if (!new_parent_child_map.contains(parent)) new_parent_child_map[parent] = {};
+                    new_parent_child_map[parent].push_back(child);
+                }));
+            }
+
+            for (auto& [parent_ptr, children] : new_parent_child_map) {
+                for (Entity* child : children) {
+                    size_t cidx = entities.get_empty_index();
+                    entities.data[cidx] = std::unique_ptr<Entity>(child);
+                }
+            }
+        }
+
+        // loads and populates next level
+        PlacedLevel* next_level = [this, is_dead](const ldtk::Level& current_ldtk_level) -> PlacedLevel* {
+            const auto& world = world_handler.getworld((size_t)0);
+
+            size_t current_index = 0;
+            bool found = false;
+            for (const auto& l : world.allLevels()) {
+                if (&l == &current_ldtk_level) {
+                    found = true;
+                    break;
+                }
+                current_index++;
+            }
+            if (!found) return nullptr;
+
+            // if its dead then next_index == current_index
+            const size_t next_index = current_index + (is_dead ? 0 : 1);
+            if (next_index >= world.allLevels().size()) return nullptr;  // current level is the last one in the world
+
+            const ldtk::Level& next_ldtk_level = world_handler.getlevel(next_index, world);
+
+            world_handler.placed_levels.clear();
+            renderer->camera_bound = nullptr;
+            if (!is_dead) leveltris->clear();
+
+            glm::vec<2, int> offset = {0, 0};
+            auto level_data_ptr = make_shared<LevelData>();
+            world_handler.placed_levels.push_back(PlacedLevel{next_ldtk_level, offset, level_data_ptr, kDefaultTileGroups});
+            PlacedLevel& placed = world_handler.placed_levels.back();
+
+            world_handler.render(next_ldtk_level, *leveltris, *renderer, offset);
+            auto& tm = world_handler.all_level_tilemaps[&next_ldtk_level];
+            light_shafts.bake_level(*renderer, tm);
+            edge_glow.bake_level(*renderer, tm);
+
+            populate_level(placed, *level_data_ptr);
+
+            return &placed;
+        }(current_ldtk_level);
         if (!next_level) return;
-
         LevelData& next_data = level_data_of(*next_level);
-
         if (next_data.player_starts.empty()) return;
 
-        const auto player_start = next_data.player_starts[0];
+        {  // Moves surviving entities (after removing and after loads / populates)
+            const auto player_start = next_data.player_starts[0];
 
-        auto shift_pos = [&](glm::vec<2, double>& pos) {
-            if (!prev_player_end) {
-                pos = player_start;
-                return;
+            auto shift_pos = [&](glm::vec<2, double>& pos) {
+                if (!prev_player_end) {
+                    pos = player_start;
+                    return;
+                }
+
+                pos -= prev_player_end->pos;
+                pos += player_start;
+            };
+            auto shift_x = [&](float& x) {
+                if (!prev_player_end) {
+                    x = player_start.x;
+                    return;
+                }
+
+                x -= prev_player_end->pos.x;
+                x += player_start.x;
+            };
+            auto shift_y = [&](float& y) {
+                if (!prev_player_end) {
+                    y = player_start.y;
+                    return;
+                }
+
+                y -= prev_player_end->pos.y;
+                y += player_start.y;
+            };
+
+            if (!is_dead) {
+                for (auto id : to_move_entities) {
+                    if (entities.exists(id)) shift_pos(entities[id].data.pos);
+                }
+
+                checkpoint_entities.clear();
+                checkpoint_entities_main_character = nullptr;
+                for (auto id : to_move_entities) {
+                    if (!entities.exists(id)) continue;
+                    Entity& e = entities[id];
+                    if (e.parent) continue;
+
+                    checkpoint_entities.push_back(std::unique_ptr<Entity>(e.clone([&](Entity* child, const Entity* parent) {
+                        if (!parent) return;
+                        if (!checkpoint_parent_child_map.contains(parent)) checkpoint_parent_child_map[parent] = {};
+                        checkpoint_parent_child_map[parent].push_back(child);
+                    })));
+                    if (id == entities.main_character) checkpoint_entities_main_character = checkpoint_entities.back().get();
+                }
             }
 
-            pos -= prev_player_end->pos;
-            pos += player_start;
-        };
-        auto shift_x = [&](float& x) {
-            if (!prev_player_end) {
-                x = player_start.x;
-                return;
+            for (auto& [entity_id, entity_ptr] : entities) {
+                entitytrisindex.add_entity(entity_id);
+                entity_ptr->render(*this, entitytris->at(entitytrisindex[entity_id]));
             }
 
-            x -= prev_player_end->pos.x;
-            x += player_start.x;
-        };
-        auto shift_y = [&](float& y) {
-            if (!prev_player_end) {
-                y = player_start.y;
-                return;
-            }
+            shift_x(renderer->camera.x);
+            shift_x(renderer->camera.target_x);
+            shift_y(renderer->camera.y);
+            shift_y(renderer->camera.target_y);
 
-            y -= prev_player_end->pos.y;
-            y += player_start.y;
-        };
-
-        for (auto id : surviving_entity_ids) {
-            if (entities.exists(id)) shift_pos(entities[id].data.pos);
+            renderer->camera.zoom_freeze_frames += 3;
+            renderer->camera.camera_freeze_frames += 3;
+            if (!is_dead) {
+                checkpoint_camera = renderer->camera;
+                checkpoint_camera.screenshake = 0;
+                renderer->camera.screenshake += 1;
+            } else
+                renderer->camera = checkpoint_camera;
         }
-
-        for (auto& [entity_id, entity_ptr] : entities) {
-            entitytrisindex.add_entity(entity_id);
-            entity_ptr->render(*this, entitytris->at(entitytrisindex[entity_id]));
-        }
-
-        shift_x(renderer->camera.x);
-        shift_x(renderer->camera.target_x);
-        shift_y(renderer->camera.y);
-        shift_y(renderer->camera.target_y);
-
-        renderer->camera.zoom_freeze_frames += 1;
-        renderer->camera.camera_freeze_frames += 1;
-        renderer->camera.screenshake += 1;
     }
 
     void populate_level(const Game::PlacedLevel& placed_level, LevelData& level_data) {
         EntityList& entities = get<EntityList>();
         const auto c = placed_level.level.bg_color;
-        debug_screen("a", "Level colour: " << +c.r << ',' << +c.g << ',' << +c.b);
         set_solid_background(c.r, c.g, c.b);
 
         const auto handle_entity = [&](const ldtk::Entity& entity, const std::string& name) {
@@ -569,21 +667,6 @@ struct GameClass : Application {
             for (const auto& entity : layer.allEntities()) handle_entity(entity, entity.getName());
     }
 
-    PlacedLevel& spawn_level(const ldtk::Level& level, glm::vec<2, int> offset = {0, 0}) {
-        auto level_data_ptr = make_shared<LevelData>();
-        world_handler.placed_levels.push_back(PlacedLevel{level, offset, level_data_ptr, kDefaultTileGroups});
-        PlacedLevel& placed = world_handler.placed_levels.back();
-
-        world_handler.render(level, *leveltris, *renderer, offset);
-        auto& tm = world_handler.all_level_tilemaps[&level];
-        light_shafts.bake_level(*renderer, tm);
-        edge_glow.bake_level(*renderer, tm);
-
-        populate_level(placed, *level_data_ptr);
-
-        return placed;
-    }
-
     void init() override {
         print("Testing: {}", fs_helper::get_sview_from_file("assets/test.txt"));
 
@@ -652,18 +735,74 @@ struct GameClass : Application {
             entitytrisindex.add_entity(entity_id);
             entity->render(*this, entitytris->at(entitytrisindex[entity_id]));
         }
+
+        renderer->camera.zoom_freeze_frames = 3;
+        renderer->camera.camera_freeze_frames = 3;
     }
 
     bool slow_motion = false;
     bool did_main_die = false;
+    bool is_speedrunning = false;
+    bool increment_timer = true;
+    double timer = 0;
+    std::map<size_t, double> level_times{};
+    unsigned int deaths = 0;
+    bool just_died = false;
+    bool is_dead = false;
 
     void loop() override {
         fps_counter->loop();
+        size_t current_index = 0;
+        {
+            const auto& world = world_handler.getworld((size_t)0);
 
+            bool found = false;
+            for (const auto& l : world.allLevels()) {
+                if (&l == &world_handler.placed_levels[0].level) {
+                    found = true;
+                    break;
+                }
+                current_index++;
+            }
+
+            if (increment_timer && current_index <= 7 && current_index > 0) timer += fps_counter->deltaTime;
+        }
         fps_counter->deltaTime *= (slow_motion ? dt_multiplier() : 0.9);
         const double dt = fps_counter->deltaTime;
         ASSUME(dt != NAN);
         ASSUME(dt > 0);
+
+        is_speedrunning = has_flag("speedrun");
+
+        if (is_speedrunning) {
+            if (timer == 0)
+                debug_screen('t', "Timer: Hasn't started yet");
+            else {
+                debug_screen('t', "");
+                for (auto [idx, time] : level_times) {
+                    if (idx < 1 || idx > 7) continue;
+                    debug_screen('t' << idx, "Level " << idx << " timer: " << format_timer(time));
+                }
+            }
+            debug_screen('d', "Deaths: " << deaths);
+        } else {
+            debug_screen('t', "");
+            debug_screen('d', "");
+        }
+
+        level_times[current_index] = timer;
+
+        if (entities.main_character == EntityList::null_index || entities[entities.main_character].dead) {
+            just_died = !is_dead;
+            is_dead = true;
+            increment_timer = false;
+            debug_screen("respawn", "Press R to respawn");
+        } else {
+            is_dead = false;
+            increment_timer = true;
+            debug_screen("respawn", "");
+        }
+        if (just_died) deaths++;
 
         for (auto& baseclass : classes) baseclass->loop();
 
@@ -676,8 +815,6 @@ struct GameClass : Application {
 
             renderer->camera.follow_point(e.data.hitbox_center());
 
-            // debug_screen("xb", "Player pos: " << e.data.pos.x << ',' << e.data.pos.y);
-
             bool should_replace = !renderer->camera_bound;
             if (renderer->camera_bound) {
                 const auto& bound = *renderer->camera_bound;
@@ -687,7 +824,6 @@ struct GameClass : Application {
             }
 
             for (const auto& bound : level_data.camera_bounds) {
-                // debug_screen("xa", "Bound pos: " << bound.x << "," << bound.y << "\n      size: " << bound.w << ',' << bound.h);
                 const bool overlap_x = e.data.pos.x >= bound.x && e.data.pos.x <= bound.x + bound.w;
                 const bool overlap_y = e.data.pos.y <= bound.y && e.data.pos.y >= bound.y - bound.h;
                 if (!(overlap_x && overlap_y)) continue;
@@ -721,13 +857,8 @@ struct GameClass : Application {
         auto& level0 = world_handler.placed_levels[0].level;
         auto& tm = world_handler.all_level_tilemaps[&level0];
 
-        const auto playerpos = entities[players[0]].data.hitbox_center();
-        const int ix = (int)std::floor((playerpos.x - tm.offset.x) / tm.scale);
-        const int iy = (int)std::floor(-(playerpos.y + tm.offset.y - 1) / tm.scale);
-
-        debug_screen(this << "x", "Player solid tile pos: " << ix << ',' << iy);
-
         slow_motion = false;
+        bool should_reset = false;
 
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
@@ -738,51 +869,59 @@ struct GameClass : Application {
 
                 case SDL_EVENT_KEY_DOWN:
                     switch (event.key.key) {
-                        // case SDLK_ESCAPE:
-                        //     running = false;
-                        //     break;
+                        case SDLK_3: {
+                            auto loc = std::find(flags.begin(), flags.end(), "speedrun");
+                            if (loc != flags.end())
+                                flags.erase(loc);
+                            else
+                                flags.push_back("speedrun");
+                        } break;
                         case SDLK_R:
-                            entities[entities.main_character].data.pos = level_data.player_starts[0];
+                            // first level no teleporting allowed
+                            if (has_reached_checkpoint) should_reset = true;
                             break;
-                        case SDLK_X:
-                            entities[entities.main_character].data.vel *= 10;
-                            break;
-                        case SDLK_F:
-                            slow_motion = true;
-                            break;
-                        case SDLK_V:
-                            world_handler.setTile(level0, {(uint)ix, (uint)iy}, 1);
-                            world_handler.renderDirtyLevels(*leveltris);
-                            break;
+                            // case SDLK_ESCAPE:
+                            //     running = false;
+                            //     break;
+                            // case SDLK_X:
+                            //    entities[entities.main_character].data.vel *= 10;
+                            //    break;
+                            // case SDLK_F:
+                            //    slow_motion = true;
+                            //    break;
+                            // case SDLK_V:
+                            //     world_handler.setTile(level0, {(uint)ix, (uint)iy}, 1);
+                            //     world_handler.renderDirtyLevels(*leveltris);
+                            //     break;
                         case SDLK_M: {
                             auto worldmousepos = renderer->get_world_mouse_pos();
                             entities[entities.main_character].data.pos = worldmousepos;
                         } break;
-                        case SDLK_N: {
-                            auto worldmousepos = renderer->get_world_mouse_pos();
-                            for (auto& [i, e] : entities) {
-                                if (std::find(players.begin(), players.end(), i) != players.end()) continue;
-                                if (e->name() != "player") continue;
-                                e->data.pos = worldmousepos;
-                            }
-                        } break;
-                        case SDLK_B: {
-                            auto worldmousepos = renderer->get_world_mouse_pos();
-                            for (auto& [i, e] : entities) {
-                                if (i == entities.main_character) continue;
-                                if (e->name() != "Essence") continue;
-                                if (e->parent) e->parent->disown(e.get());
-                                e->data.pos = worldmousepos;
-                                e->data.vel = {Random::real(-100, 100, 3), Random::real(-100, 100, 3)};
-                            }
-                        } break;
-                        case SDLK_J: {
-                            auto worldmousepos = renderer->get_world_mouse_pos();
-                            for (auto& [i, e] : entities) {
-                                if (e->name() != "Booster") continue;
-                                e->data.pos = worldmousepos;
-                            }
-                        }
+                            // case SDLK_N: {
+                            //    auto worldmousepos = renderer->get_world_mouse_pos();
+                            //    for (auto& [i, e] : entities) {
+                            //        if (i == entities.main_character) continue;
+                            //        if (e->name() != "player") continue;
+                            //        e->data.pos = worldmousepos;
+                            //    }
+                            //} break;
+                            // case SDLK_B: {
+                            //    auto worldmousepos = renderer->get_world_mouse_pos();
+                            //    for (auto& [i, e] : entities) {
+                            //        if (i == entities.main_character) continue;
+                            //        if (e->name() != "Essence") continue;
+                            //        if (e->parent) e->parent->disown(e.get());
+                            //        e->data.pos = worldmousepos;
+                            //        e->data.vel = {Random::real(-100, 100, 3), Random::real(-100, 100, 3)};
+                            //    }
+                            //} break;
+                            // case SDLK_J: {
+                            //    auto worldmousepos = renderer->get_world_mouse_pos();
+                            //    for (auto& [i, e] : entities) {
+                            //        if (e->name() != "Booster") continue;
+                            //        e->data.pos = worldmousepos;
+                            //    }
+                            //}
                     }
                     break;
 
@@ -832,8 +971,9 @@ struct GameClass : Application {
                 continue;
             }
 
-            if (entity_triggers_finish(*entity, level_data)) do_level_switch(placed_level.level, level_data);
+            if (entity_triggers_finish(*entity, level_data)) do_level_switch(placed_level.level, level_data, false);
         }
+        if (should_reset) do_level_switch(placed_level.level, level_data, true);
         if (should_clean_entities) entities.clean_entities();
 
         check_running(renderer.get());

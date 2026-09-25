@@ -4,7 +4,6 @@
  */
 #include <cmath>
 #include <game/base/entity.hpp>
-#include <iostream>
 #include "base/app.hpp"
 #include "glm/ext/vector_float2.hpp"
 #include "utils.hpp"
@@ -31,8 +30,37 @@ namespace {
     }
 }  // namespace
 
+struct Stats : Base::AppModule {
+    void init() override {}
+    void loop() override {
+        if (parent->has_flag("speedrun")) {
+            debug_screen("stats", "Triangles picked up: " << triangles_picked_up << "\nTriangles thrown: " << triangles_thrown);
+        } else
+            debug_screen("stats", "");
+    }
+    void quit() override {}
+
+    unsigned int triangles_thrown = 0, triangles_picked_up = 0;
+};
+
 struct Essence : Entity {
-    Essence() { std::cout << "Essence " << this << ": " << *this << std::endl; }
+    Essence() = default;
+    Essence(const Essence& oth, std::function<void(Entity*, const Entity*)> regentity)
+        : Entity(oth, regentity),
+          visual_rotation(oth.visual_rotation),
+          visual_y_offset(oth.visual_y_offset),
+          bobbing_sin_offset(oth.bobbing_sin_offset),
+          orbit_around_radius(oth.orbit_around_radius),
+          orbit_rotation(oth.orbit_rotation),
+          render_pos(oth.render_pos),
+          render_orbit_rotation(oth.render_orbit_rotation),
+          render_initialized(oth.render_initialized),
+          last_seen_parent(nullptr),
+          stage(oth.stage),
+          is_owned(oth.is_owned),
+          previous_parent(nullptr) {}
+
+    Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const override { return new Essence(*this, regentity); }
 
     std::string name() const override { return "Essence"; }
 
@@ -62,6 +90,7 @@ struct Essence : Entity {
     void spawn(Base::Application& app, const ldtk::Entity* e) override {
         Entity::spawn(app, e);
         bobbing_sin_offset = visualRandom(this, 0, 20);
+        app.ensure_class_added<Stats>([] { return new Stats(); });
     }
 
     void look_for_parent(Base::Application& app) {
@@ -84,7 +113,8 @@ struct Essence : Entity {
         if (stage != UNOWNED) return;
 
         for (const auto& [i, e] : app.get<EntityList>())
-            if (e->has_attribute("pick_up_triangles") && e->colliding_with(this)) {
+            if ((!e->dead) && e->has_attribute("pick_up_triangles") && e->colliding_with(this)) {
+                app.get<Stats>().triangles_picked_up++;
                 e->adopt(this);
                 break;
             }
@@ -175,6 +205,36 @@ struct Essence : Entity {
 
         Entity& p = *parent;
 
+        if (p.dead) {
+            stage = LEAVING_ORBIT;
+            previous_parent = parent;
+
+            float dir = Random::real(0, 359, 1);
+            sanitize(dir);
+
+            const double speed = 300;
+
+            data.pos = p.data.pos;
+
+            const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
+            const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
+
+            glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+            sanitize(boost.x);
+            sanitize(boost.y);
+
+            data.vel = boost;
+            sanitize(data.vel.x);
+            sanitize(data.vel.y);
+
+            p.disown(this, true);
+
+            last_seen_parent = nullptr;
+
+            is_owned.update(app, false);
+            return;
+        }
+
         size_t own_index = 0;
         size_t tri_count = 0;
         bool found_self = false;
@@ -202,6 +262,8 @@ struct Essence : Entity {
         update_orbit_rotation(own_index, tri_count, app, p);
 
         if (stage == OWNED && p.controls.boost.just_pressed() && own_index == 0) {
+            app.get<Stats>().triangles_thrown++;
+
             p.controls.boost.time = app.get<FpsCounter>().deltaTime;
 
             stage = LEAVING_ORBIT;
@@ -409,6 +471,15 @@ struct Essence : Entity {
 } _REGISTER_FOR(new Essence(), "Essence", Entity);
 
 struct GaeEssence : Essence {
+    GaeEssence(const GaeEssence& oth, std::function<void(Entity*, const Entity*)> regentity)
+        : Essence(oth, regentity),
+          has_been_taken(oth.has_been_taken),
+          parent_to_find(nullptr),
+          should_find(oth.should_find),
+          time_spent_waiting(oth.time_spent_waiting) {}
+    GaeEssence() = default;
+
+    Entity* clone(std::function<void(Entity*, const Entity*)> regentity) const override { return new GaeEssence(*this, regentity); }
     float get_side_length(Application& app) override { return 3.f; }
     static uint32_t pack_abgr(float a, float b, float g, float r) {
         auto to_u8 = [](float v) { return static_cast<uint32_t>(std::clamp(v, 0.f, 1.f) * 255.f); };
@@ -500,11 +571,41 @@ struct GaeEssence : Essence {
             sanitize(data.vel.y);
 
             return;
-        } else time_spent_waiting = 0;
+        } else
+            time_spent_waiting = 0;
 
         has_been_taken = true;
 
         Entity& p = *parent;
+        if (p.dead) {
+            stage = LEAVING_ORBIT;
+            previous_parent = parent;
+
+            float dir = Random::real(0, 359, 1);
+            sanitize(dir);
+
+            const double speed = 300;
+
+            data.pos = p.data.pos;
+
+            const auto dsin = [](double deg) { return std::sin(deg * M_PI / 180.0); };
+            const auto dcos = [](double deg) { return std::cos(deg * M_PI / 180.0); };
+
+            glm::vec<2, double> boost = {dsin(dir) * speed, dcos(dir) * speed};
+            sanitize(boost.x);
+            sanitize(boost.y);
+
+            data.vel = boost;
+            sanitize(data.vel.x);
+            sanitize(data.vel.y);
+
+            p.disown(this, true);
+
+            last_seen_parent = nullptr;
+
+            is_owned.update(app, false);
+            return;
+        }
 
         size_t own_index = 0;
         size_t tri_count = 0;
@@ -583,6 +684,7 @@ struct GaeEssence : Essence {
         update_orbit_rotation(own_index, tri_count, app, p);
 
         if (stage == OWNED && p.controls.boost.just_pressed() && own_index == 0) {
+            app.get<Stats>().triangles_thrown++;
             p.controls.boost.time = app.get<FpsCounter>().deltaTime;
 
             stage = LEAVING_ORBIT;

@@ -1,1 +1,0 @@
-//a new puzzleobject that is selectable with the mouse (visible pixel outline) and when clicked pops up with some educational UI where you learn about colours (i.e opposite colour of blue, match these colour variants to their names, spell this colour, etc)

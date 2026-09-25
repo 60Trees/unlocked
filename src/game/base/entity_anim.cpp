@@ -11,8 +11,6 @@ void Game::Entity::render(Base::Application& app, Base::Renderer::VertexLayer& l
     auto& r = app.get<Base::Renderer>();
     const double deltaTime = app.get<Base::FpsCounter>().deltaTime;
 
-    if (!does_render()) return;
-
 #ifdef SOLITAIRE_MODE
     constexpr bool solitaire_mode = true;
     runtime_warn("Playing in solitaire mode will lag your pc ... and maybe some other unintended side effects");
@@ -20,9 +18,11 @@ void Game::Entity::render(Base::Application& app, Base::Renderer::VertexLayer& l
     constexpr bool solitaire_mode = false;
 #endif
 
-    layer.material = get_material(app);
-
     if (!solitaire_mode) layer.vertices.clear();
+
+    if (!does_render()) return;
+
+    layer.material = get_material(app);
 
     const AnimationFrame anim_frame = get_anim_frame(app);
 
